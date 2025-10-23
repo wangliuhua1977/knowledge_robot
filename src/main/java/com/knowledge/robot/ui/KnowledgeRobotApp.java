@@ -8,15 +8,23 @@ import com.knowledge.robot.http.ChatClient;
 import com.knowledge.robot.model.ChatMessage;
 import com.knowledge.robot.model.ChatRequest;
 import com.knowledge.robot.model.ChatResponse;
+import com.knowledge.robot.service.CertificateLoader;
 import com.knowledge.robot.service.ConversationState;
 import com.knowledge.robot.service.QuestionConfigLoader;
 import com.knowledge.robot.service.QuestionGenerator;
 
+import javax.net.ssl.SSLHandshakeException;
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
 import java.awt.*;
+import java.io.IOException;
 import java.nio.file.Path;
+import java.security.cert.CertPathBuilderException;
+import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
+import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -34,13 +42,12 @@ public class KnowledgeRobotApp extends JFrame {
     private final ObjectMapper objectMapper = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
     private final QuestionConfigLoader configLoader = new QuestionConfigLoader(objectMapper);
     private final QuestionGenerator questionGenerator = new QuestionGenerator();
-
-    // 根据 UI 复选框动态创建，默认安全（不忽略证书）
-    private ChatClient chatClient = ChatClient.fromSystemProperty(objectMapper);
-
+    private final CertificateLoader certificateLoader = new CertificateLoader();
+    private ChatClient chatClient = new ChatClient(objectMapper);
     private final ConversationState conversationState = new ConversationState();
     private final Map<QuestionCategory, JCheckBox> categoryCheckBoxes = new LinkedHashMap<>();
     private final Random random = new Random();
+    private final List<X509Certificate> customCertificates = new ArrayList<>();
 
     private JTextField endpointField;
     private JTextField tokenField;
@@ -48,13 +55,15 @@ public class KnowledgeRobotApp extends JFrame {
     private JSpinner minRoundsSpinner;
     private JSpinner maxRoundsSpinner;
     private JCheckBox streamCheckBox;
-    private JCheckBox trustAllCheckBox;   // 忽略 SSL 证书（仅内部测试）
+    private JCheckBox trustAllCheckBox;
     private JTextField refsField;
     private JTextArea agentLinkArea;
     private JTextArea logArea;
     private JButton startButton;
     private JButton stopButton;
     private JButton reloadButton;
+    private DefaultListModel<String> certificateListModel;
+    private JList<String> certificateList;
     private JPanel categoryPanel;
 
     private ScheduledExecutorService executorService;
@@ -92,15 +101,19 @@ public class KnowledgeRobotApp extends JFrame {
         gbc.gridy = 0;
 
         endpointField = new JTextField("https://openai.sc.ctc.com:8898/whaleagent/knowledgeService/api/v1/chat/completions");
-        tokenField = new JTextField("WhaleDI-Agent-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx");
+        tokenField = new JTextField("WhaleDI-Agent-6ade2321ada01f69fa7a465135ce65a02262408d006e25236788c7c08b86be20");
         intervalSpinner = new JSpinner(new SpinnerNumberModel(3, 1, 3600, 1));
         minRoundsSpinner = new JSpinner(new SpinnerNumberModel(2, 1, 10, 1));
         maxRoundsSpinner = new JSpinner(new SpinnerNumberModel(3, 1, 10, 1));
         streamCheckBox = new JCheckBox("启用流式返回", true);
-        trustAllCheckBox = new JCheckBox("忽略SSL证书校验(内部测试)", false);
+        trustAllCheckBox = new JCheckBox("忽略SSL证书校验(内部测试)", true);
         refsField = new JTextField("23,24,35");
         agentLinkArea = new JTextArea(3, 20);
         agentLinkArea.setText("{\"key1\":\"value1\",\"key2\":\"value2\"}");
+        certificateListModel = new DefaultListModel<>();
+        certificateList = new JList<>(certificateListModel);
+        certificateList.setVisibleRowCount(3);
+        certificateList.setPrototypeCellValue("证书: ");
 
         startButton = new JButton("开始");
         stopButton = new JButton("停止");
@@ -110,23 +123,35 @@ public class KnowledgeRobotApp extends JFrame {
         startButton.addActionListener(e -> startAutomation());
         stopButton.addActionListener(e -> stopAutomation());
         reloadButton.addActionListener(e -> reloadConfiguration());
+        JButton importCertButton = new JButton("导入证书...");
+        JButton clearCertButton = new JButton("清空证书");
+        importCertButton.addActionListener(e -> importCertificates());
+        clearCertButton.addActionListener(e -> clearCertificates());
 
         gbc.weightx = 0;
         panel.add(new JLabel("接口地址"), gbc);
-        gbc.gridx = 1; gbc.weightx = 1;
+        gbc.gridx = 1;
+        gbc.weightx = 1;
         panel.add(endpointField, gbc);
 
-        gbc.gridy++; gbc.gridx = 0; gbc.weightx = 0;
+        gbc.gridy++;
+        gbc.gridx = 0;
+        gbc.weightx = 0;
         panel.add(new JLabel("授权令牌"), gbc);
-        gbc.gridx = 1; gbc.weightx = 1;
+        gbc.gridx = 1;
+        gbc.weightx = 1;
         panel.add(tokenField, gbc);
 
-        gbc.gridy++; gbc.gridx = 0; gbc.weightx = 0;
+        gbc.gridy++;
+        gbc.gridx = 0;
+        gbc.weightx = 0;
         panel.add(new JLabel("调用间隔(秒)"), gbc);
-        gbc.gridx = 1; gbc.weightx = 1;
+        gbc.gridx = 1;
+        gbc.weightx = 1;
         panel.add(intervalSpinner, gbc);
 
-        gbc.gridy++; gbc.gridx = 0;
+        gbc.gridy++;
+        gbc.gridx = 0;
         panel.add(new JLabel("单个对话轮次范围"), gbc);
         JPanel roundsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
         roundsPanel.add(new JLabel("最少:"));
@@ -136,21 +161,43 @@ public class KnowledgeRobotApp extends JFrame {
         gbc.gridx = 1;
         panel.add(roundsPanel, gbc);
 
-        gbc.gridy++; gbc.gridx = 0;
+        gbc.gridy++;
+        gbc.gridx = 0;
         panel.add(new JLabel("引用文档refs"), gbc);
         gbc.gridx = 1;
         panel.add(refsField, gbc);
 
-        gbc.gridy++; gbc.gridx = 0;
+        gbc.gridy++;
+        gbc.gridx = 0;
         panel.add(new JLabel("agentlink JSON"), gbc);
-        gbc.gridx = 1; gbc.fill = GridBagConstraints.BOTH;
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.BOTH;
         panel.add(new JScrollPane(agentLinkArea), gbc);
         gbc.fill = GridBagConstraints.HORIZONTAL;
 
-        gbc.gridy++; gbc.gridx = 0;
+        gbc.gridy++;
+        gbc.gridx = 0;
+        panel.add(new JLabel("自定义信任证书"), gbc);
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.BOTH;
+        JScrollPane certificateScrollPane = new JScrollPane(certificateList);
+        certificateScrollPane.setPreferredSize(new Dimension(200, 72));
+        panel.add(certificateScrollPane, gbc);
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+
+        gbc.gridy++;
+        gbc.gridx = 1;
+        JPanel certificateButtonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        certificateButtonPanel.add(importCertButton);
+        certificateButtonPanel.add(clearCertButton);
+        panel.add(certificateButtonPanel, gbc);
+
+        gbc.gridy++;
+        gbc.gridx = 0;
         panel.add(streamCheckBox, gbc);
 
-        gbc.gridy++; gbc.gridx = 0;
+        gbc.gridy++;
+        gbc.gridx = 0;
         panel.add(trustAllCheckBox, gbc);
 
         gbc.gridx = 1;
@@ -230,20 +277,19 @@ public class KnowledgeRobotApp extends JFrame {
             return;
         }
 
-        // 依据复选框状态创建 HttpClient（默认安全；选中时忽略证书，仅内部测试）
-        this.chatClient = new ChatClient(objectMapper, trustAllCheckBox.isSelected());
-
+        chatClient = new ChatClient(objectMapper, trustAllCheckBox.isSelected(), new ArrayList<>(customCertificates));
         executorService = Executors.newSingleThreadScheduledExecutor();
         startButton.setEnabled(false);
         stopButton.setEnabled(true);
+        String certificateSummary = customCertificates.isEmpty()
+                ? "无自定义证书"
+                : ("已加载" + customCertificates.size() + "个自定义证书");
         appendLog("开始自动轮询调用，间隔" + intervalSeconds + "秒，SSL证书校验=" +
-                (trustAllCheckBox.isSelected() ? "已忽略(内部测试)" : "已启用") + "。");
+                (trustAllCheckBox.isSelected() ? "已忽略" : "已启用") + "，" + certificateSummary + "。");
         resetConversation(minRounds, maxRounds);
 
-        executorService.scheduleAtFixedRate(
-                () -> runChatCycle(endpoint, token, stream, refs, agentLink, minRounds, maxRounds),
-                0, intervalSeconds, TimeUnit.SECONDS
-        );
+        executorService.scheduleAtFixedRate(() -> runChatCycle(endpoint, token, stream, refs, agentLink, minRounds, maxRounds),
+                0, intervalSeconds, TimeUnit.SECONDS);
     }
 
     private void stopAutomation() {
@@ -263,12 +309,12 @@ public class KnowledgeRobotApp extends JFrame {
     }
 
     private void runChatCycle(String endpoint,
-                              String token,
-                              boolean stream,
-                              List<Integer> refs,
-                              Map<String, String> agentLink,
-                              int minRounds,
-                              int maxRounds) {
+                               String token,
+                               boolean stream,
+                               List<Integer> refs,
+                               Map<String, String> agentLink,
+                               int minRounds,
+                               int maxRounds) {
         try {
             if (conversationState.shouldReset() || conversationState.getChatId() == null) {
                 resetConversation(minRounds, maxRounds);
@@ -302,8 +348,32 @@ public class KnowledgeRobotApp extends JFrame {
             conversationState.incrementRound();
             appendLog("对话已完成第" + conversationState.getCompletedRounds() + "轮/目标" + conversationState.getTargetRounds() + "轮。");
         } catch (Exception ex) {
-            appendLog("调用出现异常: " + ex.getMessage());
+            appendLog("调用出现异常: " + ex.getClass().getSimpleName() + ": " + ex.getMessage());
+            if (isCertificateError(ex)) {
+                if (trustAllCheckBox.isSelected()) {
+                    appendLog("提示: 已启用忽略SSL证书但仍然失败，请确认接口地址或联系证书管理员。");
+                } else if (!customCertificates.isEmpty()) {
+                    appendLog("提示: 已加载" + customCertificates.size() + "个自定义证书但仍然失败，请确认导入的证书链是否完整，或在测试环境勾选忽略SSL证书校验。");
+                } else {
+                    appendLog("提示: 检测到SSL证书问题，可导入服务器证书文件后重新开始，或在测试环境勾选\"忽略SSL证书校验(内部测试)\"。");
+                }
+            }
         }
+    }
+
+    private boolean isCertificateError(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof SSLHandshakeException || current instanceof CertPathBuilderException || current instanceof CertificateException) {
+                return true;
+            }
+            String message = current.getMessage();
+            if (message != null && message.contains("PKIX path building failed")) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private List<QuestionCategory> getActiveCategories() {
@@ -331,6 +401,45 @@ public class KnowledgeRobotApp extends JFrame {
                     }
                 });
         return result;
+    }
+
+    private void importCertificates() {
+        JFileChooser chooser = new JFileChooser();
+        int result = chooser.showOpenDialog(this);
+        if (result != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+        try {
+            List<X509Certificate> loaded = certificateLoader.load(chooser.getSelectedFile().toPath());
+            if (loaded.isEmpty()) {
+                appendLog("未能在所选文件中解析到证书: " + chooser.getSelectedFile().getName());
+                return;
+            }
+            for (X509Certificate certificate : loaded) {
+                customCertificates.add(certificate);
+                certificateListModel.addElement(describeCertificate(certificate));
+            }
+            appendLog("成功导入证书文件" + chooser.getSelectedFile().getName() + "，新增" + loaded.size() + "个证书。");
+        } catch (IOException | CertificateException ex) {
+            appendLog("导入证书失败: " + ex.getMessage());
+        }
+    }
+
+    private void clearCertificates() {
+        if (customCertificates.isEmpty()) {
+            appendLog("当前未加载任何自定义证书。");
+            return;
+        }
+        customCertificates.clear();
+        certificateListModel.clear();
+        appendLog("已清空所有自定义证书。");
+    }
+
+    private String describeCertificate(X509Certificate certificate) {
+        String subject = certificate.getSubjectX500Principal().getName();
+        LocalDate notBefore = certificate.getNotBefore().toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
+        LocalDate notAfter = certificate.getNotAfter().toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
+        return subject + " (" + notBefore + " ~ " + notAfter + ")";
     }
 
     private int randomRounds(int min, int max) {
