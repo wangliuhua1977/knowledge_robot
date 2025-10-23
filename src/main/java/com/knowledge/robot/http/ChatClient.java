@@ -6,10 +6,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.knowledge.robot.model.ChatRequest;
 import com.knowledge.robot.model.ChatResponse;
 
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLParameters;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -28,61 +24,52 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLParameters;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
+
 public class ChatClient {
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
 
-    /**
-     * 默认安全模式，不忽略证书校验。
-     */
     public ChatClient(ObjectMapper objectMapper) {
         this(objectMapper, false);
     }
 
-    /**
-     * @param objectMapper          jackson
-     * @param trustAllCertificates  true 时忽略证书校验与主机名校验（仅限内网自签调试）
-     */
     public ChatClient(ObjectMapper objectMapper, boolean trustAllCertificates) {
         this.httpClient = buildHttpClient(trustAllCertificates);
         this.objectMapper = objectMapper;
     }
 
-    /**
-     * 从系统属性读取是否忽略校验：
-     * -Dknowledge_robot.insecureSkipVerify=true
-     */
-    public static ChatClient fromSystemProperty(ObjectMapper mapper) {
-        boolean insecure = Boolean.parseBoolean(
-                System.getProperty("knowledge_robot.insecureSkipVerify", "false"));
-        return new ChatClient(mapper, insecure);
-    }
-
     private HttpClient buildHttpClient(boolean trustAllCertificates) {
         HttpClient.Builder builder = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(20));
-
         if (trustAllCertificates) {
             try {
                 SSLContext sslContext = SSLContext.getInstance("TLS");
-                // 信任所有证书（调试用）
-                X509TrustManager insecureTrustManager = new X509TrustManager() {
-                    @Override public void checkClientTrusted(X509Certificate[] chain, String authType) {}
-                    @Override public void checkServerTrusted(X509Certificate[] chain, String authType) {}
-                    @Override public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
-                };
-                sslContext.init(null, new TrustManager[]{insecureTrustManager}, new SecureRandom());
-                builder.sslContext(sslContext);
+                sslContext.init(null, new TrustManager[]{new X509TrustManager() {
+                    @Override
+                    public void checkClientTrusted(X509Certificate[] chain, String authType) {
+                    }
 
-                // 关闭主机名校验（调试用）
-                SSLParameters params = new SSLParameters();
-                params.setEndpointIdentificationAlgorithm(null);
-                builder.sslParameters(params);
+                    @Override
+                    public void checkServerTrusted(X509Certificate[] chain, String authType) {
+                    }
+
+                    @Override
+                    public X509Certificate[] getAcceptedIssuers() {
+                        return new X509Certificate[0];
+                    }
+                }}, new SecureRandom());
+                builder = builder.sslContext(sslContext);
+                SSLParameters sslParameters = new SSLParameters();
+                sslParameters.setEndpointIdentificationAlgorithm(null);
+                builder = builder.sslParameters(sslParameters);
             } catch (NoSuchAlgorithmException | KeyManagementException e) {
-                throw new IllegalStateException("无法初始化 SSL 上下文", e);
+                throw new IllegalStateException("无法初始化SSL上下文", e);
             }
         }
-
         return builder.build();
     }
 
@@ -91,7 +78,6 @@ public class ChatClient {
                                  ChatRequest request,
                                  Consumer<String> onEvent) throws IOException, InterruptedException {
         String payload = objectMapper.writeValueAsString(request);
-
         HttpRequest httpRequest = HttpRequest.newBuilder()
                 .uri(URI.create(endpoint))
                 .timeout(Duration.ofSeconds(120))
@@ -100,25 +86,23 @@ public class ChatClient {
                 .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
                 .build();
 
-        HttpResponse<java.io.InputStream> response =
-                httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream());
-
+        HttpResponse<java.io.InputStream> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream());
         int statusCode = response.statusCode();
         List<String> events = new ArrayList<>();
         StringBuilder rawBuilder = new StringBuilder();
         StringBuilder contentBuilder = new StringBuilder();
 
-        try (BufferedReader reader =
-                     new BufferedReader(new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
             String line;
             while ((line = reader.readLine()) != null) {
-                if (line.isBlank()) continue;
-
+                if (line.isBlank()) {
+                    continue;
+                }
                 events.add(line);
                 rawBuilder.append(line).append('\n');
-
-                if (onEvent != null) onEvent.accept(line);
-
+                if (onEvent != null) {
+                    onEvent.accept(line);
+                }
                 parseLine(line, contentBuilder);
             }
         }
@@ -136,9 +120,13 @@ public class ChatClient {
     }
 
     private void parseLine(String line, StringBuilder contentBuilder) {
-        String payload = line.startsWith("data:") ? line.substring(5).trim() : line;
-        if ("[DONE]".equalsIgnoreCase(payload)) return;
-
+        String payload = line;
+        if (line.startsWith("data:")) {
+            payload = line.substring(5).trim();
+        }
+        if ("[DONE]".equalsIgnoreCase(payload)) {
+            return;
+        }
         try {
             JsonNode node = objectMapper.readTree(payload);
             JsonNode choices = node.get("choices");
@@ -161,13 +149,14 @@ public class ChatClient {
                 }
             }
         } catch (JsonProcessingException ignored) {
-            // 非 JSON 行（比如心跳/日志），忽略
+            // 非JSON内容，忽略解析
         }
     }
 
-    @SuppressWarnings("unchecked")
     public static Map<String, String> parseAgentLink(ObjectMapper objectMapper, String text) {
-        if (text == null || text.isBlank()) return Map.of();
+        if (text == null || text.isBlank()) {
+            return Map.of();
+        }
         try {
             JsonNode node = objectMapper.readTree(text);
             return objectMapper.convertValue(node, Map.class);
