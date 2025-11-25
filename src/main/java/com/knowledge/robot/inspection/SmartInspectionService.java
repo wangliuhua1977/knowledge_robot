@@ -114,10 +114,11 @@ public class SmartInspectionService {
     private void handleOneImage(File file, Path historyDir) {
         logger.log("开始处理：" + file.getName());
         long appId = generateAppId();
+        String chatId = generateChatId();
         try {
-            long refId = uploadFile(file, appId);
+            long refId = uploadFile(file, appId, chatId);
             logger.log("上传成功，refId=" + refId);
-            callCompletion(refId);
+            callCompletion(refId, chatId);
             moveToHistory(file.toPath(), historyDir);
             logger.log("文件已移至历史目录。\n");
         } catch (Exception e) {
@@ -125,13 +126,13 @@ public class SmartInspectionService {
         }
     }
 
-    private long uploadFile(File file, long appId) throws IOException {
+    private long uploadFile(File file, long appId, String chatId) throws IOException {
         logger.log("调用上传接口 -> " + config.uploadUrl());
-        logger.log("使用 appId=" + appId + ", chatId=" + config.chatId());
+        logger.log("使用 appId=" + appId + ", chatId=" + chatId);
         MultipartBody.Builder bodyBuilder = new MultipartBody.Builder().setType(MultipartBody.FORM)
                 .addFormDataPart("files", file.getName(), RequestBody.create(file, MediaType.parse("application/octet-stream")))
                 .addFormDataPart("appId", String.valueOf(appId))
-                .addFormDataPart("chatId", config.chatId());
+                .addFormDataPart("chatId", chatId);
 
         Request request = new Request.Builder()
                 .url(config.uploadUrl())
@@ -155,10 +156,10 @@ public class SmartInspectionService {
         }
     }
 
-    private void callCompletion(long refId) throws IOException {
+    private void callCompletion(long refId, String chatId) throws IOException {
         logger.log("调用处理接口 -> " + config.completionUrl());
         var payloadNode = mapper.createObjectNode();
-        payloadNode.put("chatId", config.chatId());
+        payloadNode.put("chatId", chatId);
         payloadNode.put("stream", true);
         payloadNode.putArray("refs").add(refId);
         var messages = payloadNode.putArray("messages");
@@ -187,8 +188,7 @@ public class SmartInspectionService {
 
     private void logResponseDetail(String stage, Response resp, String body) {
         logger.log(stage + "响应状态：" + resp.code() + " " + resp.message());
-        logger.log(stage + "响应头：" + resp.headers());
-        logger.log(stage + "响应体：" + body);
+        logger.log(stage + "响应JSON：" + body);
     }
 
     private void moveToHistory(Path file, Path historyDir) throws IOException {
@@ -267,6 +267,16 @@ public class SmartInspectionService {
             sb.append(value);
         }
         return Long.parseLong(sb.toString());
+    }
+
+    private String generateChatId() {
+        final String chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+        StringBuilder sb = new StringBuilder();
+        while (sb.length() < 12) {
+            int idx = (int) (Math.random() * chars.length());
+            sb.append(chars.charAt(idx));
+        }
+        return sb.toString();
     }
 
     private OkHttpClient buildClient() {
