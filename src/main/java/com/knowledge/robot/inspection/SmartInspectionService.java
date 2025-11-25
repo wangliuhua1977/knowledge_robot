@@ -25,6 +25,7 @@ import java.util.stream.Stream;
 public class SmartInspectionService {
     private final ObjectMapper mapper = new ObjectMapper();
     private final SmartInspectionLogger logger;
+    private final OkHttpClient httpClient = buildClient();
 
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "smart-inspection");
@@ -139,7 +140,7 @@ public class SmartInspectionService {
                 .post(bodyBuilder.build())
                 .build();
 
-        try (OkHttpClient client = buildClient(); Response resp = client.newCall(request).execute()) {
+        try (Response resp = httpClient.newCall(request).execute()) {
             String body = resp.body() != null ? resp.body().string() : "";
             logger.log("上传响应状态：" + resp.code());
             logger.log("上传响应体：" + body);
@@ -176,7 +177,7 @@ public class SmartInspectionService {
                 .post(body)
                 .build();
 
-        try (OkHttpClient client = buildClient(); Response resp = client.newCall(request).execute()) {
+        try (Response resp = httpClient.newCall(request).execute()) {
             String respBody = resp.body() != null ? resp.body().string() : "";
             logger.log("处理响应状态：" + resp.code());
             logger.log("处理响应体：" + respBody);
