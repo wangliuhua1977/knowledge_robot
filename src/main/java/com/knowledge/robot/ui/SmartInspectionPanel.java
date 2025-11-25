@@ -19,7 +19,6 @@ public class SmartInspectionPanel extends JPanel implements SmartInspectionLogge
     private static final String KEY_FOLDER = "inspection_folder";
     private static final String KEY_INTERVAL = "inspection_interval";
     private static final String KEY_TOKEN = "inspection_token";
-    private static final String KEY_CHAT_ID = "inspection_chatId";
     private static final String KEY_UPLOAD_URL = "inspection_upload_url";
     private static final String KEY_COMPLETION_URL = "inspection_completion_url";
 
@@ -30,7 +29,6 @@ public class SmartInspectionPanel extends JPanel implements SmartInspectionLogge
     private final JTextField folderField = new JTextField();
     private final JSpinner intervalSpinner = new JSpinner(new SpinnerNumberModel(60, 5, 3600, 5));
     private final JTextField tokenField = new JTextField("Bearer ");
-    private final JTextField chatIdField = new JTextField("13yg9vuuk6ny");
     private final JTextField uploadUrlField = new JTextField(DEFAULT_UPLOAD_URL);
     private final JTextField completionUrlField = new JTextField(DEFAULT_COMPLETION_URL);
     private final JButton startBtn = new JButton("启动任务");
@@ -66,18 +64,6 @@ public class SmartInspectionPanel extends JPanel implements SmartInspectionLogge
 
         gc.gridx = 0; gc.gridy = 1; params.add(new JLabel("间隔(秒)"), gc);
         gc.gridx = 1; params.add(intervalSpinner, gc);
-
-        gc.gridx = 0; gc.gridy = 2; params.add(new JLabel("Authorization"), gc);
-        gc.gridx = 1; params.add(tokenField, gc);
-
-        gc.gridx = 0; gc.gridy = 3; params.add(new JLabel("chatId"), gc);
-        gc.gridx = 1; params.add(chatIdField, gc);
-
-        gc.gridx = 0; gc.gridy = 4; params.add(new JLabel("上传接口"), gc);
-        gc.gridx = 1; params.add(uploadUrlField, gc);
-
-        gc.gridx = 0; gc.gridy = 5; params.add(new JLabel("处理接口"), gc);
-        gc.gridx = 1; params.add(completionUrlField, gc);
 
         JPanel topButtons = new JPanel(new FlowLayout(FlowLayout.LEFT));
         topButtons.add(startBtn);
@@ -150,7 +136,6 @@ public class SmartInspectionPanel extends JPanel implements SmartInspectionLogge
                 folder,
                 ((Number) intervalSpinner.getValue()).longValue(),
                 tokenField.getText().trim(),
-                chatIdField.getText().trim(),
                 uploadUrlField.getText().trim(),
                 completionUrlField.getText().trim()
         );
@@ -192,7 +177,6 @@ public class SmartInspectionPanel extends JPanel implements SmartInspectionLogge
         folderField.setText(prefs.get(KEY_FOLDER, System.getProperty("user.home", "")));
         intervalSpinner.setValue(prefs.getLong(KEY_INTERVAL, 60));
         tokenField.setText(prefs.get(KEY_TOKEN, tokenField.getText()));
-        chatIdField.setText(prefs.get(KEY_CHAT_ID, chatIdField.getText()));
         uploadUrlField.setText(prefs.get(KEY_UPLOAD_URL, DEFAULT_UPLOAD_URL));
         completionUrlField.setText(prefs.get(KEY_COMPLETION_URL, DEFAULT_COMPLETION_URL));
         setDateToStartOfDay(fromDateSpinner, new Date());
@@ -204,7 +188,6 @@ public class SmartInspectionPanel extends JPanel implements SmartInspectionLogge
         prefs.put(KEY_FOLDER, cfg.folder());
         prefs.putLong(KEY_INTERVAL, cfg.intervalSeconds());
         prefs.put(KEY_TOKEN, cfg.token());
-        prefs.put(KEY_CHAT_ID, cfg.chatId());
         prefs.put(KEY_UPLOAD_URL, cfg.uploadUrl());
         prefs.put(KEY_COMPLETION_URL, cfg.completionUrl());
     }
