@@ -18,7 +18,7 @@ public class ChatRequest {
     private final List<ChatMessage> messages;
 
     @JsonProperty("refs")
-    private final List<Integer> refs;
+    private final List<Long> refs;
 
     @JsonProperty("agentlink")
     private final Map<String, String> agentLink;
@@ -26,7 +26,7 @@ public class ChatRequest {
     public ChatRequest(String chatId,
                        boolean stream,
                        List<ChatMessage> messages,
-                       List<Integer> refs,
+                       List<Long> refs,
                        Map<String, String> agentLink) {
         this.chatId = chatId;
         this.stream = stream;
@@ -47,7 +47,7 @@ public class ChatRequest {
         return messages;
     }
 
-    public List<Integer> getRefs() {
+    public List<Long> getRefs() {
         return refs;
     }
 

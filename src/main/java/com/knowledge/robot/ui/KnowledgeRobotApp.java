@@ -55,10 +55,12 @@ public class KnowledgeRobotApp extends JFrame {
     private JButton startButton;
     private JButton stopButton;
     private JButton reloadButton;
+    private JButton inspectionButton;
     private JPanel categoryPanel;
 
     private ScheduledExecutorService executorService;
     private QuestionConfig questionConfig;
+    private IntelligentInspectionDialog inspectionDialog;
 
     public KnowledgeRobotApp() {
         setTitle("中国电信内部知识问答机器人");
@@ -105,11 +107,13 @@ public class KnowledgeRobotApp extends JFrame {
         startButton = new JButton("开始");
         stopButton = new JButton("停止");
         reloadButton = new JButton("重新加载问题配置");
+        inspectionButton = new JButton("智能点检");
         stopButton.setEnabled(false);
 
         startButton.addActionListener(e -> startAutomation());
         stopButton.addActionListener(e -> stopAutomation());
         reloadButton.addActionListener(e -> reloadConfiguration());
+        inspectionButton.addActionListener(e -> openInspectionDialog());
 
         gbc.weightx = 0;
         panel.add(new JLabel("接口地址"), gbc);
@@ -169,6 +173,7 @@ public class KnowledgeRobotApp extends JFrame {
         gbc.gridx = 1;
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         buttonPanel.add(reloadButton);
+        buttonPanel.add(inspectionButton);
         buttonPanel.add(startButton);
         buttonPanel.add(stopButton);
         panel.add(buttonPanel, gbc);
@@ -233,7 +238,7 @@ public class KnowledgeRobotApp extends JFrame {
             appendLog("接口地址和授权令牌不能为空。");
             return;
         }
-        List<Integer> refs = parseRefs(refsField.getText());
+        List<Long> refs = parseRefs(refsField.getText());
         Map<String, String> agentLink = ChatClient.parseAgentLink(objectMapper, agentLinkArea.getText());
         boolean stream = streamCheckBox.isSelected();
         long intervalSeconds = ((Number) intervalSpinner.getValue()).longValue();
@@ -274,7 +279,7 @@ public class KnowledgeRobotApp extends JFrame {
     private void runChatCycle(String endpoint,
                                String token,
                                boolean stream,
-                               List<Integer> refs,
+                               List<Long> refs,
                                Map<String, String> agentLink,
                                int minRounds,
                                int maxRounds) {
@@ -347,17 +352,17 @@ public class KnowledgeRobotApp extends JFrame {
         return active;
     }
 
-    private List<Integer> parseRefs(String text) {
+    private List<Long> parseRefs(String text) {
         if (text == null || text.isBlank()) {
             return List.of();
         }
-        List<Integer> result = new ArrayList<>();
+        List<Long> result = new ArrayList<>();
         Arrays.stream(text.split("[,，\\s]+"))
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
                 .forEach(s -> {
                     try {
-                        result.add(Integer.parseInt(s));
+                        result.add(Long.parseLong(s));
                     } catch (NumberFormatException ignored) {
                     }
                 });
@@ -377,6 +382,13 @@ public class KnowledgeRobotApp extends JFrame {
             logArea.append("[" + time + "] " + message + System.lineSeparator());
             logArea.setCaretPosition(logArea.getDocument().getLength());
         });
+    }
+
+    private void openInspectionDialog() {
+        if (inspectionDialog == null) {
+            inspectionDialog = new IntelligentInspectionDialog(this, objectMapper, trustAllCheckBox.isSelected(), tokenField.getText(), endpointField.getText());
+        }
+        inspectionDialog.setVisible(true);
     }
 
     public static void main(String[] args) {
