@@ -1,6 +1,5 @@
 package com.knowledge.robot.inspection;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import okhttp3.*;
 
@@ -116,9 +115,9 @@ public class SmartInspectionService {
         long appId = generateAppId();
         String chatId = generateChatId();
         try {
-            long refId = uploadFile(file, appId, chatId);
-            logger.log("上传成功，refId=" + refId);
-            callCompletion(refId, chatId);
+            uploadFile(file, appId, chatId);
+            logger.log("上传成功，使用 appId=" + appId);
+            callCompletion(appId, chatId);
             moveToHistory(file.toPath(), historyDir);
             logger.log("文件已移至历史目录。\n");
         } catch (Exception e) {
@@ -141,17 +140,14 @@ public class SmartInspectionService {
                 .post(bodyBuilder.build())
                 .build();
 
+        logger.log("上传提交体：appId=" + appId + ", chatId=" + chatId + ", file=" + file.getName());
+
         try (Response resp = httpClient.newCall(request).execute()) {
             String body = resp.body() != null ? resp.body().string() : "";
             logResponseDetail("上传", resp, body);
             if (!resp.isSuccessful()) {
                 throw new IOException("上传失败，HTTP " + resp.code());
             }
-            Long refId = parseFirstId(body);
-            if (refId != null) {
-                return refId;
-            }
-            logger.log("未能解析ID，回退使用 appId");
             return appId;
         }
     }
@@ -197,68 +193,6 @@ public class SmartInspectionService {
         Files.move(file, target, StandardCopyOption.REPLACE_EXISTING);
     }
 
-    private Long parseFirstId(String body) {
-        if (body == null || body.isBlank()) {
-            return null;
-        }
-        try {
-            JsonNode root = mapper.readTree(body);
-            Long id = findId(root);
-            if (id != null) {
-                return id;
-            }
-            // 查找数字字符串
-            String digits = body.replaceAll("\\D+", " ").trim();
-            if (!digits.isEmpty()) {
-                String[] parts = digits.split(" ");
-                for (String p : parts) {
-                    try {
-                        return Long.parseLong(p);
-                    } catch (NumberFormatException ignored) {
-                    }
-                }
-            }
-        } catch (Exception e) {
-            logger.log("解析上传响应时异常：" + e.getMessage());
-        }
-        return null;
-    }
-
-    private Long findId(JsonNode node) {
-        if (node == null) {
-            return null;
-        }
-        if (node.isNumber()) {
-            return node.longValue();
-        }
-        if (node.isTextual()) {
-            try {
-                return Long.parseLong(node.asText());
-            } catch (NumberFormatException ignored) {
-            }
-        }
-        if (node.isObject()) {
-            if (node.has("id")) {
-                Long val = findId(node.get("id"));
-                if (val != null) return val;
-            }
-            if (node.has("appId")) {
-                Long val = findId(node.get("appId"));
-                if (val != null) return val;
-            }
-            for (JsonNode child : node) {
-                Long val = findId(child);
-                if (val != null) return val;
-            }
-        }
-        if (node.isArray()) {
-            for (JsonNode child : node) {
-                Long val = findId(child);
-                if (val != null) return val;
-            }
-        }
-        return null;
-    }
 
     private long generateAppId() {
         StringBuilder sb = new StringBuilder();
