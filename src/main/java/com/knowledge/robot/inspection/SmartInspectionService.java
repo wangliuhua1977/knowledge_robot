@@ -142,8 +142,7 @@ public class SmartInspectionService {
 
         try (Response resp = httpClient.newCall(request).execute()) {
             String body = resp.body() != null ? resp.body().string() : "";
-            logger.log("上传响应状态：" + resp.code());
-            logger.log("上传响应体：" + body);
+            logResponseDetail("上传", resp, body);
             if (!resp.isSuccessful()) {
                 throw new IOException("上传失败，HTTP " + resp.code());
             }
@@ -179,12 +178,17 @@ public class SmartInspectionService {
 
         try (Response resp = httpClient.newCall(request).execute()) {
             String respBody = resp.body() != null ? resp.body().string() : "";
-            logger.log("处理响应状态：" + resp.code());
-            logger.log("处理响应体：" + respBody);
+            logResponseDetail("处理", resp, respBody);
             if (!resp.isSuccessful()) {
                 throw new IOException("处理接口返回失败，HTTP " + resp.code());
             }
         }
+    }
+
+    private void logResponseDetail(String stage, Response resp, String body) {
+        logger.log(stage + "响应状态：" + resp.code() + " " + resp.message());
+        logger.log(stage + "响应头：" + resp.headers());
+        logger.log(stage + "响应体：" + body);
     }
 
     private void moveToHistory(Path file, Path historyDir) throws IOException {
