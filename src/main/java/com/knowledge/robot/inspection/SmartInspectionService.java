@@ -140,6 +140,7 @@ public class SmartInspectionService {
                 .post(bodyBuilder.build())
                 .build();
 
+        logger.log("上传请求头：Authorization=" + config.token());
         logger.log("上传提交体：appId=" + appId + ", chatId=" + chatId + ", file=" + file.getName());
 
         try (Response resp = httpClient.newCall(request).execute()) {
@@ -163,6 +164,7 @@ public class SmartInspectionService {
                 .put("role", "user")
                 .put("content", "智能点检"));
         String payload = payloadNode.toString();
+        logger.log("处理请求头：Authorization=" + config.token());
         logger.log("提交报文：" + payload);
 
         RequestBody body = RequestBody.create(payload, MediaType.parse("application/json; charset=utf-8"));

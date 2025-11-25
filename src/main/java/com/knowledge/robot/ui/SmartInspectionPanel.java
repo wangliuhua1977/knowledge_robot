@@ -3,6 +3,7 @@ package com.knowledge.robot.ui;
 import com.knowledge.robot.inspection.SmartInspectionConfig;
 import com.knowledge.robot.inspection.SmartInspectionLogger;
 import com.knowledge.robot.inspection.SmartInspectionService;
+import com.knowledge.robot.util.AppSettings;
 
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
@@ -18,19 +19,9 @@ public class SmartInspectionPanel extends JPanel implements SmartInspectionLogge
     private static final String PREF_NODE = "com.knowledge.robot.ui.SmartInspection";
     private static final String KEY_FOLDER = "inspection_folder";
     private static final String KEY_INTERVAL = "inspection_interval";
-    private static final String KEY_TOKEN = "inspection_token";
-    private static final String KEY_UPLOAD_URL = "inspection_upload_url";
-    private static final String KEY_COMPLETION_URL = "inspection_completion_url";
-
-    private static final String DEFAULT_UPLOAD_URL = "https://openai.sc.ctc.com:8898/whaleagent/knowledgeService/core/chat/upload-files";
-    private static final String DEFAULT_COMPLETION_URL = "https://openai.sc.ctc.com:8898/whaleagent/knowledgeService/api/v1/chat/completions";
-
     private final Preferences prefs = Preferences.userRoot().node(PREF_NODE);
     private final JTextField folderField = new JTextField();
     private final JSpinner intervalSpinner = new JSpinner(new SpinnerNumberModel(60, 5, 3600, 5));
-    private final JTextField tokenField = new JTextField("Bearer ");
-    private final JTextField uploadUrlField = new JTextField(DEFAULT_UPLOAD_URL);
-    private final JTextField completionUrlField = new JTextField(DEFAULT_COMPLETION_URL);
     private final JButton startBtn = new JButton("启动任务");
     private final JButton stopBtn = new JButton("停止");
     private final JTextArea logArea = new JTextArea();
@@ -132,12 +123,13 @@ public class SmartInspectionPanel extends JPanel implements SmartInspectionLogge
             JOptionPane.showMessageDialog(this, "请选择扫描目录");
             return;
         }
+        AppSettings appSettings = AppSettings.get();
         SmartInspectionConfig config = new SmartInspectionConfig(
                 folder,
                 ((Number) intervalSpinner.getValue()).longValue(),
-                tokenField.getText().trim(),
-                uploadUrlField.getText().trim(),
-                completionUrlField.getText().trim()
+                appSettings.apiToken(),
+                appSettings.uploadUrl(),
+                appSettings.completionUrl()
         );
         persistPrefs(config);
         log("==============================");
@@ -176,9 +168,6 @@ public class SmartInspectionPanel extends JPanel implements SmartInspectionLogge
     private void loadPrefs() {
         folderField.setText(prefs.get(KEY_FOLDER, System.getProperty("user.home", "")));
         intervalSpinner.setValue(prefs.getLong(KEY_INTERVAL, 60));
-        tokenField.setText(prefs.get(KEY_TOKEN, tokenField.getText()));
-        uploadUrlField.setText(prefs.get(KEY_UPLOAD_URL, DEFAULT_UPLOAD_URL));
-        completionUrlField.setText(prefs.get(KEY_COMPLETION_URL, DEFAULT_COMPLETION_URL));
         setDateToStartOfDay(fromDateSpinner, new Date());
         setDateToEndOfDay(toDateSpinner, new Date());
         refreshHistory();
@@ -187,9 +176,6 @@ public class SmartInspectionPanel extends JPanel implements SmartInspectionLogge
     private void persistPrefs(SmartInspectionConfig cfg) {
         prefs.put(KEY_FOLDER, cfg.folder());
         prefs.putLong(KEY_INTERVAL, cfg.intervalSeconds());
-        prefs.put(KEY_TOKEN, cfg.token());
-        prefs.put(KEY_UPLOAD_URL, cfg.uploadUrl());
-        prefs.put(KEY_COMPLETION_URL, cfg.completionUrl());
     }
 
     private JSpinner createDateSpinner() {
