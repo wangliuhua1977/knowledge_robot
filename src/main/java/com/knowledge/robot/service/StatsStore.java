@@ -1,37 +1,20 @@
 package com.knowledge.robot.service;
 
-import java.io.*;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.prefs.Preferences;
 
-public class StatsStore {
-    private static final AtomicLong COUNT = new AtomicLong(load());
-    private static final Path DIR = Path.of(System.getProperty("user.home"), ".knowledge_robot");
-    private static final Path FILE = DIR.resolve("stats.txt");
+public final class StatsStore {
+    private static final Preferences PREFS = Preferences.userRoot().node("com.knowledge.robot.service.StatsStore");
+    private static final String KEY_RUNS = "auto_chat_runs";
 
-    private static long load() {
-        try {
-            Path dir = Path.of(System.getProperty("user.home"), ".knowledge_robot");
-            Path file = dir.resolve("stats.txt");
-            if (Files.exists(file)) {
-                String s = Files.readString(file, StandardCharsets.UTF_8).trim();
-                return Long.parseLong(s);
-            }
-        } catch (Exception ignore) {}
-        return 0;
-    }
-
-    public static long read() {
-        return COUNT.get();
+    private StatsStore() {
     }
 
     public static synchronized void increment() {
-        long v = COUNT.incrementAndGet();
-        try {
-            if (!Files.exists(DIR)) Files.createDirectories(DIR);
-            Files.writeString(FILE, Long.toString(v), StandardCharsets.UTF_8);
-        } catch (IOException ignore) {}
+        long now = PREFS.getLong(KEY_RUNS, 0L) + 1;
+        PREFS.putLong(KEY_RUNS, now);
+    }
+
+    public static synchronized long read() {
+        return PREFS.getLong(KEY_RUNS, 0L);
     }
 }

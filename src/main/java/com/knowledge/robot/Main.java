@@ -1,17 +1,16 @@
 package com.knowledge.robot;
 
-import com.formdev.flatlaf.themes.FlatMacDarkLaf;
+import com.formdev.flatlaf.FlatLightLaf;
 import com.knowledge.robot.ui.KnowledgeRobotApp;
 
 import javax.swing.*;
 
 public class Main {
     public static void main(String[] args) {
+        FlatLightLaf.setup();
         SwingUtilities.invokeLater(() -> {
-            try {
-                FlatMacDarkLaf.setup();
-            } catch (Exception ignore) {}
-            new KnowledgeRobotApp().setVisible(true);
+            KnowledgeRobotApp app = new KnowledgeRobotApp();
+            app.setVisible(true);
         });
     }
 }
