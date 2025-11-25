@@ -1,55 +1,42 @@
 # knowledge_robot
 
-## 项目简介
+Windows 11 风格的 Java 22 Swing 桌面程序，用于按照厂家接口规范自动发起单轮对话，随机生成中国电信内部业务类问题。
 
-本项目提供一个基于 Java 17 的 Windows 桌面程序（Swing），用于自动向中国电信内部知识问答接口提问。程序能够按照指定的时间间隔，围绕财务流程、IT 数据需求流程、装维作业等 10 个真实业务大类自动生成问题，并展示完整的请求与响应过程。
+> 要求支持：
+> - 多选分类题库（≥30 类），每轮随机选类随机提问
+> - 每轮 1 次对话（chatId 随机），返回后随机 1~N 秒再开启新对话
+> - UI 展示**完整 POST**与**原始返回 JSON**（**Token 不脱敏**）
+> - 忽略 SSL 证书校验（内网直接访问）
+> - 统计累计对话总数，并持久化到用户目录 `~/.knowledge_robot/stats.txt`
+> - 配置面板与自动聊天面板分离，可切换
 
-## 功能特性
+## 运行
 
-- 支持配置调用间隔（默认 3 秒）以及每个对话的最小/最大轮次（默认 2-3 轮）。
-- 内置 10 个可配置的问题大类，问题库保存在 `config/questions.json` 文件中，可按需修改。
-- 自动生成带有业务背景的提问内容，模拟内部员工的真实咨询场景。
-- 界面展示包含请求报文、流式响应片段和汇总回答在内的完整交互过程。
-- 支持配置 `refs`、`agentlink`、接口地址以及授权 Token。
-- 可在界面中选择是否忽略 SSL 证书校验（默认勾选），便于在内部自签环境中调试。
-
-## 开发与运行
-
-### 环境要求
-
-- JDK 17 及以上
-- Maven 3.8 及以上
-
-### 构建
-
-```bash
-mvn clean package
+### 打包
+```powershell
+# 在项目根目录执行：
+mvn -q -e -DskipTests package
+# 生成的可执行 fat-jar：
+# target\knowledge_robot-1.0.0-shaded.jar
 ```
 
-### 运行
-
-```bash
-mvn exec:java -Dexec.mainClass="com.knowledge.robot.ui.KnowledgeRobotApp"
+### 启动
+```powershell
+java -jar target\knowledge_robot-1.0.0-shaded.jar
 ```
 
-> 运行在 Windows 上时，请确保网络能够访问接口地址，并根据需要修改授权信息。
-> 如果目标接口使用自签名证书，可保持默认勾选的“忽略 SSL 证书校验（内部测试）”选项；若取消勾选，出现 PKIX 相关报错时界面会提示重新启用该选项。
-
-## 配置问题库
-
-`config/questions.json` 中定义了 10 个问题大类以及示例问题。每个大类均可在界面中勾选启用，也可以直接编辑该文件以新增或调整问题内容。
-
-```json
-{
-  "categories": [
-    {
-      "name": "财务流程",
-      "questions": [
-        "财务共享中心的集中报销从提交申请到款项拨付的具体环节和时限是怎样安排的？"
-      ]
-    }
-  ]
-}
+## 修改接口地址/Token（不在UI展示）
+编辑 `src/main/resources/app.properties`：
+```properties
+api.url=https://openai.sc.ctc.com:8898/whaleagent/knowledgeService/api/v1/chat/completions
+api.token=Bearer YOUR_TOKEN_HERE
+api.stream=true
+api.refs=23,24,35
+api.agentlink={"key1":"value1","key2":"value2"}
 ```
 
-修改配置后，可在界面点击“重新加载问题配置”按钮即时生效。
+> 程序日志会原样输出**完整POST**和**原始返回JSON**，**不会脱敏 Token**。请确保运行环境安全。
+
+## 注意
+- 仅单线程调度，避免死锁/假死；所有 UI 更新通过 EDT 调度。
+- 若返回结构与 OpenAI 兼容，将解析 `choices[0].message.content`，否则直接原样展示返回JSON。

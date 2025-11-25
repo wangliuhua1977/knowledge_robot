@@ -1,167 +1,105 @@
 package com.knowledge.robot.http;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.knowledge.robot.model.ChatRequest;
-import com.knowledge.robot.model.ChatResponse;
+import okhttp3.*;
+import okio.BufferedSource;
 
-import java.io.BufferedReader;
+import javax.net.ssl.*;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
 import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
-import java.security.SecureRandom;
+import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
-import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.function.Consumer;
 
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLParameters;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
-
+/**
+ * 简单 HTTP 客户端（OkHttp），支持：
+ *  - 忽略 SSL 证书校验
+ *  - 常规 POST JSON
+ *  - 流式读取（逐行回调）
+ */
 public class ChatClient {
-    private final HttpClient httpClient;
-    private final ObjectMapper objectMapper;
 
-    public ChatClient(ObjectMapper objectMapper) {
-        this(objectMapper, false);
+    private final OkHttpClient client;
+    private final String url;
+    private final String token;
+
+    public ChatClient(String url, String token) {
+        this.url = url;
+        this.token = token;
+        this.client = buildUnsafeClient();
     }
 
-    public ChatClient(ObjectMapper objectMapper, boolean trustAllCertificates) {
-        this.httpClient = buildHttpClient(trustAllCertificates);
-        this.objectMapper = objectMapper;
-    }
-
-    private HttpClient buildHttpClient(boolean trustAllCertificates) {
-        HttpClient.Builder builder = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(20));
-        if (trustAllCertificates) {
-            try {
-                SSLContext sslContext = SSLContext.getInstance("TLS");
-                sslContext.init(null, new TrustManager[]{new X509TrustManager() {
-                    @Override
-                    public void checkClientTrusted(X509Certificate[] chain, String authType) {
+    /** 忽略 SSL / Hostname 校验 */
+    private OkHttpClient buildUnsafeClient() {
+        try {
+            TrustManager[] trustAllCerts = new TrustManager[]{
+                    new X509TrustManager() {
+                        public void checkClientTrusted(X509Certificate[] chain, String authType) throws CertificateException {}
+                        public void checkServerTrusted(X509Certificate[] chain, String authType) throws CertificateException {}
+                        public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[]{}; }
                     }
+            };
+            SSLContext sslContext = SSLContext.getInstance("TLS");
+            sslContext.init(null, trustAllCerts, new java.security.SecureRandom());
+            SSLSocketFactory sslSocketFactory = sslContext.getSocketFactory();
 
-                    @Override
-                    public void checkServerTrusted(X509Certificate[] chain, String authType) {
-                    }
+            OkHttpClient.Builder builder = new OkHttpClient.Builder()
+                    .sslSocketFactory(sslSocketFactory, (X509TrustManager) trustAllCerts[0])
+                    .hostnameVerifier((hostname, session) -> true);
 
-                    @Override
-                    public X509Certificate[] getAcceptedIssuers() {
-                        return new X509Certificate[0];
-                    }
-                }}, new SecureRandom());
-                builder = builder.sslContext(sslContext);
-                SSLParameters sslParameters = new SSLParameters();
-                sslParameters.setEndpointIdentificationAlgorithm(null);
-                builder = builder.sslParameters(sslParameters);
-            } catch (NoSuchAlgorithmException | KeyManagementException e) {
-                throw new IllegalStateException("无法初始化SSL上下文", e);
-            }
+            // 可按需设置超时
+            builder.callTimeout(java.time.Duration.ofSeconds(180));
+            builder.readTimeout(java.time.Duration.ofSeconds(180));
+            builder.connectTimeout(java.time.Duration.ofSeconds(30));
+            builder.writeTimeout(java.time.Duration.ofSeconds(60));
+
+            return builder.build();
+        } catch (NoSuchAlgorithmException | KeyManagementException e) {
+            throw new RuntimeException(e);
         }
-        return builder.build();
     }
 
-    public ChatResponse sendChat(String endpoint,
-                                 String token,
-                                 ChatRequest request,
-                                 Consumer<String> onEvent) throws IOException, InterruptedException {
-        String payload = objectMapper.writeValueAsString(request);
-        HttpRequest httpRequest = HttpRequest.newBuilder()
-                .uri(URI.create(endpoint))
-                .timeout(Duration.ofSeconds(120))
-                .header("Authorization", "Bearer " + token)
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
+    /** 常规 POST JSON（非流） */
+    public Response postJson(String json) throws IOException {
+        RequestBody body = RequestBody.create(json, MediaType.parse("application/json; charset=utf-8"));
+        Request request = new Request.Builder()
+                .url(url)
+                .addHeader("Authorization", token)
+                .addHeader("Content-Type", "application/json")
+                .post(body)
+                .build();
+        return client.newCall(request).execute();
+    }
+
+    /**
+     * 流式 POST：逐行把响应内容回调出去（常见为 "event:" / "data:" 逐行）
+     * 注意：此方法内部会消费完响应并自动关闭。
+     */
+    public void postJsonStream(String json, java.util.function.Consumer<String> onLine) throws Exception {
+        RequestBody body = RequestBody.create(json, MediaType.parse("application/json; charset=utf-8"));
+        Request request = new Request.Builder()
+                .url(url)
+                .addHeader("Authorization", token)
+                .addHeader("Content-Type", "application/json")
+                .post(body)
                 .build();
 
-        HttpResponse<java.io.InputStream> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream());
-        int statusCode = response.statusCode();
-        List<String> events = new ArrayList<>();
-        StringBuilder rawBuilder = new StringBuilder();
-        StringBuilder contentBuilder = new StringBuilder();
-
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                if (line.isBlank()) {
-                    continue;
+        Call call = client.newCall(request);
+        Response resp = call.execute();
+        try (resp) {
+            if (!resp.isSuccessful()) {
+                onLine.accept("HTTP " + resp.code());
+                if (resp.body() != null) {
+                    onLine.accept(resp.body().string());
                 }
-                events.add(line);
-                rawBuilder.append(line).append('\n');
-                if (onEvent != null) {
-                    onEvent.accept(line);
-                }
-                parseLine(line, contentBuilder);
+                return;
             }
-        }
-
-        if (events.isEmpty() && rawBuilder.length() == 0) {
-            rawBuilder.append("状态码: ").append(statusCode);
-        }
-
-        return ChatResponse.builder()
-                .statusCode(statusCode)
-                .events(events)
-                .assistantMessage(contentBuilder.length() == 0 ? null : contentBuilder.toString())
-                .rawBody(rawBuilder.toString())
-                .build();
-    }
-
-    private void parseLine(String line, StringBuilder contentBuilder) {
-        String payload = line;
-        if (line.startsWith("data:")) {
-            payload = line.substring(5).trim();
-        }
-        if ("[DONE]".equalsIgnoreCase(payload)) {
-            return;
-        }
-        try {
-            JsonNode node = objectMapper.readTree(payload);
-            JsonNode choices = node.get("choices");
-            if (choices != null && choices.isArray()) {
-                for (JsonNode choice : choices) {
-                    JsonNode delta = choice.get("delta");
-                    if (delta != null) {
-                        JsonNode content = delta.get("content");
-                        if (content != null && !content.isNull()) {
-                            contentBuilder.append(content.asText());
-                        }
-                    }
-                    JsonNode message = choice.get("message");
-                    if (message != null) {
-                        JsonNode content = message.get("content");
-                        if (content != null && !content.isNull()) {
-                            contentBuilder.append(content.asText());
-                        }
-                    }
-                }
+            if (resp.body() == null) return;
+            BufferedSource source = resp.body().source();
+            while (!source.exhausted()) {
+                String line = source.readUtf8LineStrict();
+                // 逐行回调
+                onLine.accept(line);
             }
-        } catch (JsonProcessingException ignored) {
-            // 非JSON内容，忽略解析
-        }
-    }
-
-    public static Map<String, String> parseAgentLink(ObjectMapper objectMapper, String text) {
-        if (text == null || text.isBlank()) {
-            return Map.of();
-        }
-        try {
-            JsonNode node = objectMapper.readTree(text);
-            return objectMapper.convertValue(node, Map.class);
-        } catch (JsonProcessingException e) {
-            return Map.of();
         }
     }
 }

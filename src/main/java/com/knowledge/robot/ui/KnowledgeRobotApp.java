@@ -1,400 +1,375 @@
 package com.knowledge.robot.ui;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.knowledge.robot.config.QuestionCategory;
-import com.knowledge.robot.config.QuestionConfig;
-import com.knowledge.robot.http.ChatClient;
-import com.knowledge.robot.model.ChatMessage;
-import com.knowledge.robot.model.ChatRequest;
-import com.knowledge.robot.model.ChatResponse;
-import com.knowledge.robot.service.ConversationState;
-import com.knowledge.robot.service.QuestionConfigLoader;
-import com.knowledge.robot.service.QuestionGenerator;
+import com.knowledge.robot.service.AutoChatService;
+import com.knowledge.robot.service.StatsStore;
+import com.knowledge.robot.util.QuestionBank;
 
-import javax.net.ssl.SSLHandshakeException;
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
+import javax.swing.text.*;
 import java.awt.*;
-import java.nio.file.Path;
-import java.security.cert.CertPathBuilderException;
-import java.security.cert.CertificateException;
-import java.time.LocalTime;
-import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.LinkedHashMap;
+import java.awt.event.ActionEvent;
+import java.awt.event.KeyEvent;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Random;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.prefs.Preferences;
+import java.util.stream.Collectors;
 
 public class KnowledgeRobotApp extends JFrame {
-    private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
-    private final ObjectMapper objectMapper = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
-    private final QuestionConfigLoader configLoader = new QuestionConfigLoader(objectMapper);
-    private final QuestionGenerator questionGenerator = new QuestionGenerator();
-    private ChatClient chatClient = new ChatClient(objectMapper);
-    private final ConversationState conversationState = new ConversationState();
-    private final Map<QuestionCategory, JCheckBox> categoryCheckBoxes = new LinkedHashMap<>();
-    private final Random random = new Random();
+    private static final String PREF_NODE = "com.knowledge.robot.ui.KnowledgeRobotApp";
+    private static final String KEY_SELECTED_CATS = "selected_categories";
+    private static final String KEY_RANDOM = "random_interval";
+    private static final String KEY_MAX_SEC = "max_interval";
+    private static final String SEP = "\u001F"; // 文件不可见分隔符
 
-    private JTextField endpointField;
-    private JTextField tokenField;
-    private JSpinner intervalSpinner;
-    private JSpinner minRoundsSpinner;
-    private JSpinner maxRoundsSpinner;
-    private JCheckBox streamCheckBox;
-    private JCheckBox trustAllCheckBox;
-    private JTextField refsField;
-    private JTextArea agentLinkArea;
-    private JTextArea logArea;
-    private JButton startButton;
-    private JButton stopButton;
-    private JButton reloadButton;
-    private JButton inspectionButton;
-    private JPanel categoryPanel;
+    // 样式：亮蓝色（问题行）
+    private static final Color BRIGHT_BLUE = new Color(84, 195, 230); // #007AFF
+    // 样式：思考栏暗色
+    private static final Color THINK_DARK = new Color(170, 170, 170);
 
-    private ScheduledExecutorService executorService;
-    private QuestionConfig questionConfig;
-    private IntelligentInspectionDialog inspectionDialog;
+    private final Preferences prefs = Preferences.userRoot().node(PREF_NODE);
+
+    private final CardLayout cardLayout = new CardLayout();
+    private final JPanel cardPanel = new JPanel(cardLayout);
+
+    // Config panel widgets
+    private final JPanel configPanel = new JPanel(new BorderLayout());
+    private final JPanel categoryPanel = new JPanel(new GridLayout(0, 3, 8, 8));
+    private final JSlider maxIntervalSlider = new JSlider(1, 1800, 10);
+    private final JLabel maxIntervalLabel = new JLabel("最大间隔秒数: 10");
+    private final JCheckBox randomIntervalCheck = new JCheckBox("随机间隔 (1 ~ 最大间隔)", true);
+    private final JButton btnSelectAll = new JButton("全选");
+    private final JButton btnDeselectAll = new JButton("全部取消");
+    private final JButton saveConfigBtn = new JButton("保存设置");
+
+    // Auto chat panel widgets
+    private final JPanel autoPanel = new JPanel(new BorderLayout());
+    private final JTextArea thinkArea = new JTextArea();               // 思考栏（暗色 + 斜体）
+    private final JTextPane convoPane = new JTextPane();               // 对话过程（问题亮蓝）
+    private final JButton startBtn = new JButton("开始自动对话");
+    private final JButton stopBtn = new JButton("停止");
+    private final JLabel runCountLabel = new JLabel("累计发起对话：0");
+    private final JLabel nextInLabel = new JLabel("下次对话倒计时：—");
+
+    // 自定义问题
+    private final JTextField customField = new JTextField();
+    private final JButton sendBtn = new JButton("发送");
+
+    private final List<JCheckBox> categoryChecks = new ArrayList<>();
+    private final AtomicBoolean running = new AtomicBoolean(false);
+    private AutoChatService service;
 
     public KnowledgeRobotApp() {
-        setTitle("中国电信内部知识问答机器人");
+        super("Knowledge Robot - 乐山电信IT智能体-业务学习");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setSize(1200, 760);
+        setSize(1100, 720);
         setLocationRelativeTo(null);
-        initComponents();
-        reloadConfiguration();
+        buildUI();
+        bindActions();
+        loadPreferencesAndApply();        // 启动时恢复上次选择（首次默认全选）
+        refreshRunCount();
+        SwingUtilities.invokeLater(() -> cardLayout.show(cardPanel, "auto")); // 默认定位到自动聊天
     }
 
-    private void initComponents() {
-        setLayout(new BorderLayout(8, 8));
+    private void buildUI() {
+        // Left navigation
+        JPanel nav = new JPanel();
+        nav.setLayout(new BoxLayout(nav, BoxLayout.Y_AXIS));
+        nav.setBorder(BorderFactory.createEmptyBorder(10,10,10,10));
+        JButton toConfig = new JButton("配置");
+        JButton toAuto = new JButton("自动学习");
+        nav.add(toConfig);
+        nav.add(Box.createVerticalStrut(10));
+        nav.add(toAuto);
+        nav.add(Box.createVerticalGlue());
 
-        JPanel configPanel = buildConfigPanel();
-        add(configPanel, BorderLayout.NORTH);
+        // Config panel content
+        JPanel cfgTop = new JPanel(new BorderLayout());
+        cfgTop.setBorder(new TitledBorder("兴趣分类（多选）"));
 
-        JPanel centerPanel = new JPanel(new BorderLayout(8, 8));
-        centerPanel.add(buildCategoryPanel(), BorderLayout.WEST);
-        centerPanel.add(buildLogPanel(), BorderLayout.CENTER);
-        add(centerPanel, BorderLayout.CENTER);
-    }
-
-    private JPanel buildConfigPanel() {
-        JPanel panel = new JPanel(new GridBagLayout());
-        panel.setBorder(new TitledBorder("接口与调度配置"));
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(4, 4, 4, 4);
-        gbc.anchor = GridBagConstraints.WEST;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.gridx = 0;
-        gbc.gridy = 0;
-
-        endpointField = new JTextField("https://openai.sc.ctc.com:8898/whaleagent/knowledgeService/api/v1/chat/completions");
-        tokenField = new JTextField("WhaleDI-Agent-6ade2321ada01f69fa7a465135ce65a02262408d006e25236788c7c08b86be20");
-        intervalSpinner = new JSpinner(new SpinnerNumberModel(3, 1, 3600, 1));
-        minRoundsSpinner = new JSpinner(new SpinnerNumberModel(2, 1, 10, 1));
-        maxRoundsSpinner = new JSpinner(new SpinnerNumberModel(3, 1, 10, 1));
-        streamCheckBox = new JCheckBox("启用流式返回", true);
-        trustAllCheckBox = new JCheckBox("忽略SSL证书校验(内部测试)", true);
-        refsField = new JTextField("23,24,35");
-        agentLinkArea = new JTextArea(3, 20);
-        agentLinkArea.setText("{\"key1\":\"value1\",\"key2\":\"value2\"}");
-
-        startButton = new JButton("开始");
-        stopButton = new JButton("停止");
-        reloadButton = new JButton("重新加载问题配置");
-        inspectionButton = new JButton("智能点检");
-        stopButton.setEnabled(false);
-
-        startButton.addActionListener(e -> startAutomation());
-        stopButton.addActionListener(e -> stopAutomation());
-        reloadButton.addActionListener(e -> reloadConfiguration());
-        inspectionButton.addActionListener(e -> openInspectionDialog());
-
-        gbc.weightx = 0;
-        panel.add(new JLabel("接口地址"), gbc);
-        gbc.gridx = 1;
-        gbc.weightx = 1;
-        panel.add(endpointField, gbc);
-
-        gbc.gridy++;
-        gbc.gridx = 0;
-        gbc.weightx = 0;
-        panel.add(new JLabel("授权令牌"), gbc);
-        gbc.gridx = 1;
-        gbc.weightx = 1;
-        panel.add(tokenField, gbc);
-
-        gbc.gridy++;
-        gbc.gridx = 0;
-        gbc.weightx = 0;
-        panel.add(new JLabel("调用间隔(秒)"), gbc);
-        gbc.gridx = 1;
-        gbc.weightx = 1;
-        panel.add(intervalSpinner, gbc);
-
-        gbc.gridy++;
-        gbc.gridx = 0;
-        panel.add(new JLabel("单个对话轮次范围"), gbc);
-        JPanel roundsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        roundsPanel.add(new JLabel("最少:"));
-        roundsPanel.add(minRoundsSpinner);
-        roundsPanel.add(new JLabel("最多:"));
-        roundsPanel.add(maxRoundsSpinner);
-        gbc.gridx = 1;
-        panel.add(roundsPanel, gbc);
-
-        gbc.gridy++;
-        gbc.gridx = 0;
-        panel.add(new JLabel("引用文档refs"), gbc);
-        gbc.gridx = 1;
-        panel.add(refsField, gbc);
-
-        gbc.gridy++;
-        gbc.gridx = 0;
-        panel.add(new JLabel("agentlink JSON"), gbc);
-        gbc.gridx = 1;
-        gbc.fill = GridBagConstraints.BOTH;
-        panel.add(new JScrollPane(agentLinkArea), gbc);
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-
-        gbc.gridy++;
-        gbc.gridx = 0;
-        panel.add(streamCheckBox, gbc);
-
-        gbc.gridy++;
-        gbc.gridx = 0;
-        panel.add(trustAllCheckBox, gbc);
-
-        gbc.gridx = 1;
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
-        buttonPanel.add(reloadButton);
-        buttonPanel.add(inspectionButton);
-        buttonPanel.add(startButton);
-        buttonPanel.add(stopButton);
-        panel.add(buttonPanel, gbc);
-
-        return panel;
-    }
-
-    private JScrollPane buildLogPanel() {
-        logArea = new JTextArea();
-        logArea.setEditable(false);
-        logArea.setLineWrap(true);
-        logArea.setWrapStyleWord(true);
-        JScrollPane scrollPane = new JScrollPane(logArea);
-        scrollPane.setBorder(new TitledBorder("调用日志"));
-        return scrollPane;
-    }
-
-    private JPanel buildCategoryPanel() {
-        categoryPanel = new JPanel();
-        categoryPanel.setBorder(new TitledBorder("问题大类"));
-        categoryPanel.setLayout(new BoxLayout(categoryPanel, BoxLayout.Y_AXIS));
-        return categoryPanel;
-    }
-
-    private void reloadConfiguration() {
-        Path configPath = Path.of("config", "questions.json");
-        Optional<QuestionConfig> configOptional = configLoader.load(configPath);
-        configOptional.ifPresent(config -> this.questionConfig = config);
-        if (questionConfig == null) {
-            questionConfig = new QuestionConfig(new ArrayList<>());
+        for (String cat : QuestionBank.categories()) {
+            JCheckBox cb = new JCheckBox(cat, true); // 首次默认全选，之后由 loadPreferences 覆盖
+            categoryChecks.add(cb);
+            categoryPanel.add(cb);
         }
-        rebuildCategoryPanel();
-        appendLog("问题配置已加载，共" + questionConfig.getCategories().size() + "个大类。");
+        JScrollPane catScroll = new JScrollPane(categoryPanel);
+        cfgTop.add(catScroll, BorderLayout.CENTER);
+
+        JPanel cfgBottom = new JPanel(new GridBagLayout());
+        GridBagConstraints gc = new GridBagConstraints();
+        gc.insets = new Insets(6,6,6,6);
+        gc.gridx = 0; gc.gridy = 0; gc.anchor = GridBagConstraints.WEST;
+        cfgBottom.add(new JLabel("自动对话间隔"), gc);
+        gc.gridx = 1;
+        maxIntervalSlider.addChangeListener(e -> maxIntervalLabel.setText("最大间隔秒数: " + maxIntervalSlider.getValue()));
+        cfgBottom.add(maxIntervalSlider, gc);
+        gc.gridx = 2;
+        cfgBottom.add(maxIntervalLabel, gc);
+
+        gc.gridx = 0; gc.gridy = 1; gc.gridwidth = 1;
+        cfgBottom.add(randomIntervalCheck, gc);
+        gc.gridx = 1;
+        cfgBottom.add(btnSelectAll, gc);
+        gc.gridx = 2;
+        cfgBottom.add(btnDeselectAll, gc);
+
+        gc.gridx = 2; gc.gridy = 2; gc.gridwidth = 1; gc.anchor = GridBagConstraints.EAST;
+        cfgBottom.add(saveConfigBtn, gc);
+
+        JPanel cfgContainer = new JPanel(new BorderLayout(10,10));
+        cfgContainer.add(cfgTop, BorderLayout.CENTER);
+        cfgContainer.add(cfgBottom, BorderLayout.SOUTH);
+        configPanel.add(cfgContainer, BorderLayout.CENTER);
+
+        // Auto chat panel content
+        JPanel topBar = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        topBar.add(startBtn);
+        topBar.add(stopBtn);
+        stopBtn.setEnabled(false);
+        topBar.add(runCountLabel);
+        topBar.add(new JSeparator(SwingConstants.VERTICAL));
+        topBar.add(nextInLabel);
+
+        // 思考栏：暗色 + 斜体
+        thinkArea.setEditable(false);
+        thinkArea.setLineWrap(true);
+        thinkArea.setWrapStyleWord(true);
+        thinkArea.setForeground(THINK_DARK);
+        thinkArea.setFont(thinkArea.getFont().deriveFont(Font.ITALIC));
+
+        // 对话区（Styled）
+        convoPane.setEditable(false);
+        convoPane.setBorder(BorderFactory.createEmptyBorder(8,8,8,8));
+
+        JScrollPane thinkScroll = new JScrollPane(thinkArea);
+        thinkScroll.setBorder(new TitledBorder("思维链"));
+        JScrollPane convoScroll = new JScrollPane(convoPane);
+        convoScroll.setBorder(new TitledBorder("交流栏"));
+
+        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, convoScroll, thinkScroll);
+        split.setDividerLocation(360);
+        autoPanel.add(topBar, BorderLayout.NORTH);
+        autoPanel.add(split, BorderLayout.CENTER);
+
+        // 底部：自定义问题输入
+        JPanel bottomBar = new JPanel(new BorderLayout(8, 8));
+        bottomBar.setBorder(BorderFactory.createEmptyBorder(8,8,8,8));
+        bottomBar.add(customField, BorderLayout.CENTER);
+        bottomBar.add(sendBtn, BorderLayout.EAST);
+        autoPanel.add(bottomBar, BorderLayout.SOUTH);
+
+        // Cards
+        cardPanel.add(configPanel, "cfg");
+        cardPanel.add(autoPanel, "auto");
+
+        // Root
+        getContentPane().setLayout(new BorderLayout());
+        getContentPane().add(nav, BorderLayout.WEST);
+        getContentPane().add(cardPanel, BorderLayout.CENTER);
+
+        toConfig.addActionListener(e -> cardLayout.show(cardPanel, "cfg"));
+        toAuto.addActionListener(e -> cardLayout.show(cardPanel, "auto"));
     }
 
-    private void rebuildCategoryPanel() {
-        categoryPanel.removeAll();
-        categoryCheckBoxes.clear();
-        for (QuestionCategory category : questionConfig.getCategories()) {
-            JCheckBox checkBox = new JCheckBox(category.getName(), true);
-            categoryCheckBoxes.put(category, checkBox);
-            categoryPanel.add(checkBox);
-        }
-        categoryPanel.revalidate();
-        categoryPanel.repaint();
+    private void bindActions() {
+        saveConfigBtn.addActionListener(this::onSave);
+        startBtn.addActionListener(this::onStart);
+        stopBtn.addActionListener(this::onStop);
+
+        btnSelectAll.addActionListener(e -> setAllCategoriesChecked(true));
+        btnDeselectAll.addActionListener(e -> setAllCategoriesChecked(false));
+
+        // 发送自定义问题：按钮/回车
+        sendBtn.addActionListener(this::onSendCustom);
+        customField.addActionListener(this::onSendCustom);
+        InputMap im = customField.getInputMap(JComponent.WHEN_FOCUSED);
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "SEND");
+        customField.getActionMap().put("SEND", new AbstractAction() {
+            @Override public void actionPerformed(ActionEvent e) { onSendCustom(e); }
+        });
     }
 
-    private void startAutomation() {
-        if (executorService != null && !executorService.isShutdown()) {
-            appendLog("调度已经在运行。");
+    /* ====================== 事件处理 ====================== */
+
+    private void onSave(ActionEvent e) {
+        if (getSelectedCategoriesFromUI().isEmpty()) {
+            JOptionPane.showMessageDialog(this, "请至少选择一个对话分类。");
             return;
         }
-        int minRounds = ((Number) minRoundsSpinner.getValue()).intValue();
-        int maxRounds = ((Number) maxRoundsSpinner.getValue()).intValue();
-        if (minRounds > maxRounds) {
-            appendLog("最小轮次不能大于最大轮次。");
-            return;
-        }
-        String endpoint = endpointField.getText().trim();
-        String token = tokenField.getText().trim();
-        if (endpoint.isEmpty() || token.isEmpty()) {
-            appendLog("接口地址和授权令牌不能为空。");
-            return;
-        }
-        List<Long> refs = parseRefs(refsField.getText());
-        Map<String, String> agentLink = ChatClient.parseAgentLink(objectMapper, agentLinkArea.getText());
-        boolean stream = streamCheckBox.isSelected();
-        long intervalSeconds = ((Number) intervalSpinner.getValue()).longValue();
-
-        if (getActiveCategories().isEmpty()) {
-            appendLog("请至少选择一个问题大类。");
-            return;
-        }
-
-        chatClient = new ChatClient(objectMapper, trustAllCheckBox.isSelected());
-        executorService = Executors.newSingleThreadScheduledExecutor();
-        startButton.setEnabled(false);
-        stopButton.setEnabled(true);
-        appendLog("开始自动轮询调用，间隔" + intervalSeconds + "秒，SSL证书校验=" +
-                (trustAllCheckBox.isSelected() ? "已忽略" : "已启用") + "。");
-        resetConversation(minRounds, maxRounds);
-
-        executorService.scheduleAtFixedRate(() -> runChatCycle(endpoint, token, stream, refs, agentLink, minRounds, maxRounds),
-                0, intervalSeconds, TimeUnit.SECONDS);
+        persistPreferences();
+        JOptionPane.showMessageDialog(this, "配置已保存。下次启动将自动恢复。");
     }
 
-    private void stopAutomation() {
-        if (executorService != null) {
-            executorService.shutdownNow();
-            executorService = null;
-            appendLog("调度已停止。");
+    private void onStart(ActionEvent e) {
+        if (getSelectedCategoriesFromUI().isEmpty()) {
+            JOptionPane.showMessageDialog(this, "请至少选择一个对话分类。");
+            return;
         }
-        startButton.setEnabled(true);
-        stopButton.setEnabled(false);
+        running.set(true);
+        startBtn.setEnabled(false);
+        stopBtn.setEnabled(true);
+        // 新一轮开始：清空可视区
+        thinkArea.setText("");
+        setConvoText("");
+
+        ensureService();
+        service.start(running);
     }
 
-    private void resetConversation(int minRounds, int maxRounds) {
-        int rounds = randomRounds(minRounds, maxRounds);
-        conversationState.reset(rounds);
-        appendLog("开始新的对话，chatId=" + conversationState.getChatId() + "，目标轮次=" + rounds + "。");
+    private void onStop(ActionEvent e) {
+        running.set(false);
+        if (service != null) service.stop();
+        startBtn.setEnabled(true);
+        stopBtn.setEnabled(false);
+        nextInLabel.setText("下次对话倒计时：—");
     }
 
-    private void runChatCycle(String endpoint,
-                               String token,
-                               boolean stream,
-                               List<Long> refs,
-                               Map<String, String> agentLink,
-                               int minRounds,
-                               int maxRounds) {
+    private void onSendCustom(ActionEvent e) {
+        String q = customField.getText().trim();
+        if (q.isEmpty()) return;
+
+        ensureService();
+        // 先把“问题”行写入对话区（加粗+加大+亮蓝）
+      //  appendQuestionLine(q);
+        // 交给服务跑一轮（不会触发自动调度）
+        service.askOnce(q);
+
+        customField.setText("");
+        customField.requestFocus();
+    }
+
+    /* ====================== 与 Service 的衔接 ====================== */
+
+    /** 确保 service 可用；未启动自动也能手工问 */
+    private void ensureService() {
+        if (service != null) return;
+        service = new AutoChatService(
+                this::getSelectedCategoriesFromUI,
+                () -> randomIntervalCheck.isSelected(),
+                () -> maxIntervalSlider.getValue(),
+                this::appendConvoStream,
+                this::appendThinkStream,
+                this::onOneDialogFinished,
+                this::updateCountdownLabel
+        );
+    }
+
+    private void appendConvoStream(String text) {
+        SwingUtilities.invokeLater(() -> {
+            if ("-------".equals(text.trim())) {
+                appendSeparator();
+            } else if (text.startsWith("我: ")) {
+                appendQuestionLine(text.substring("我: ".length()));
+            } else if (text.startsWith("助手: ")) {
+                appendAssistantBlock(text.substring("助手: ".length()));
+            } else {
+                appendNormal(text + "\n");
+            }
+        });
+    }
+
+    private void appendThinkStream(String text) {
+        SwingUtilities.invokeLater(() -> {
+            if (text.contains("<<CLEAR_THOUGHTS>>")) {
+                thinkArea.setText("");
+                thinkArea.setCaretPosition(0);
+            } else {
+                thinkArea.append(text); // 流式、无时间戳、中文段落样式
+                thinkArea.setCaretPosition(thinkArea.getDocument().getLength());
+            }
+        });
+    }
+
+    private void onOneDialogFinished() {
+        StatsStore.increment();
+        refreshRunCount();
+    }
+
+    private void refreshRunCount() {
+        runCountLabel.setText("累计发起对话：" + StatsStore.read());
+    }
+
+    private void updateCountdownLabel(int seconds) {
+        SwingUtilities.invokeLater(() -> nextInLabel.setText("下次对话倒计时：" + seconds + " s"));
+    }
+
+    /* ====================== 对话区样式辅助 ====================== */
+
+    private void setConvoText(String text) {
+        convoPane.setText(text);
+    }
+
+    private void appendQuestionLine(String question) {
+        int baseSize = convoPane.getFont().getSize();
+        appendStyled("我: " + question + "\n", true, baseSize + 1, BRIGHT_BLUE);
+    }
+
+    private void appendAssistantBlock(String content) {
+        appendStyled("助手: ", true, convoPane.getFont().getSize(), null); // 前缀加粗
+        appendStyled(content + "\n", false, convoPane.getFont().getSize(), null);
+    }
+
+    private void appendSeparator() {
+        appendStyled("-------\n", false, convoPane.getFont().getSize(), Color.GRAY);
+    }
+
+    private void appendNormal(String text) {
+        appendStyled(text, false, convoPane.getFont().getSize(), null);
+    }
+
+    private void appendStyled(String text, boolean bold, int fontSize, Color color) {
+        StyledDocument doc = convoPane.getStyledDocument();
+        SimpleAttributeSet attrs = new SimpleAttributeSet();
+        StyleConstants.setBold(attrs, bold);
+        StyleConstants.setFontSize(attrs, fontSize);
+        if (color != null) StyleConstants.setForeground(attrs, color);
         try {
-            if (conversationState.shouldReset() || conversationState.getChatId() == null) {
-                resetConversation(minRounds, maxRounds);
-            }
-            List<QuestionCategory> activeCategories = getActiveCategories();
-            if (activeCategories.isEmpty()) {
-                appendLog("无可用问题大类，暂停提问。");
-                stopAutomation();
-                return;
-            }
-            QuestionCategory category = activeCategories.get(random.nextInt(activeCategories.size()));
-            String question = questionGenerator.generateQuestion(category);
-            ChatMessage userMessage = new ChatMessage("user", question);
+            doc.insertString(doc.getLength(), text, attrs);
+            convoPane.setCaretPosition(doc.getLength());
+        } catch (BadLocationException ignored) {}
+    }
 
-            List<ChatMessage> messages = new ArrayList<>(conversationState.getMessages());
-            messages.add(userMessage);
-            ChatRequest request = new ChatRequest(conversationState.getChatId(), stream, messages, refs, agentLink);
-            String requestBody = objectMapper.writeValueAsString(request);
-            appendLog("-> 提问类别: " + category.getName());
-            appendLog("-> 请求报文:\n" + requestBody);
+    /* ====================== 偏好设置（持久化） ====================== */
 
-            ChatResponse response = chatClient.sendChat(endpoint, token, request, line -> appendLog("<- " + line));
-            String assistantContent = response.getAssistantMessage();
-            if (assistantContent == null || assistantContent.isBlank()) {
-                assistantContent = response.getRawBody();
-            }
-            appendLog("<- 汇总回答:\n" + assistantContent);
+    private void persistPreferences() {
+        // 保存分类
+        String catsJoined = getSelectedCategoriesFromUI().stream().collect(Collectors.joining(SEP));
+        prefs.put(KEY_SELECTED_CATS, catsJoined);
+        // 保存随机与间隔
+        prefs.putBoolean(KEY_RANDOM, randomIntervalCheck.isSelected());
+        prefs.putInt(KEY_MAX_SEC, maxIntervalSlider.getValue());
+    }
 
-            conversationState.addMessage(userMessage);
-            conversationState.addMessage(new ChatMessage("assistant", assistantContent));
-            conversationState.incrementRound();
-            appendLog("对话已完成第" + conversationState.getCompletedRounds() + "轮/目标" + conversationState.getTargetRounds() + "轮。");
-        } catch (Exception ex) {
-            appendLog("调用出现异常: " + ex.getClass().getSimpleName() + ": " + ex.getMessage());
-            if (isCertificateError(ex)) {
-                if (trustAllCheckBox.isSelected()) {
-                    appendLog("提示: 已启用忽略SSL证书但仍然失败，请确认接口地址或联系证书管理员。");
-                } else {
-                    appendLog("提示: 检测到SSL证书问题，可勾选\"忽略SSL证书校验(内部测试)\"后重新开始。");
-                }
+    private void loadPreferencesAndApply() {
+        // 分类
+        String saved = prefs.get(KEY_SELECTED_CATS, null);
+        if (saved == null || saved.isBlank()) {
+            setAllCategoriesChecked(true); // 首次默认全选
+        } else {
+            Set<String> want = new LinkedHashSet<>(Arrays.asList(saved.split(SEP, -1)));
+            for (JCheckBox cb : categoryChecks) {
+                cb.setSelected(want.contains(cb.getText()));
             }
         }
+        // 随机与间隔
+        randomIntervalCheck.setSelected(prefs.getBoolean(KEY_RANDOM, true));
+        int max = prefs.getInt(KEY_MAX_SEC, 10);
+        max = Math.max(1, Math.min(1800, max));
+        maxIntervalSlider.setValue(max);
+        maxIntervalLabel.setText("最大间隔秒数: " + maxIntervalSlider.getValue());
     }
 
-    private boolean isCertificateError(Throwable throwable) {
-        Throwable current = throwable;
-        while (current != null) {
-            if (current instanceof SSLHandshakeException || current instanceof CertPathBuilderException || current instanceof CertificateException) {
-                return true;
-            }
-            String message = current.getMessage();
-            if (message != null && message.contains("PKIX path building failed")) {
-                return true;
-            }
-            current = current.getCause();
+    private void setAllCategoriesChecked(boolean checked) {
+        for (JCheckBox cb : categoryChecks) cb.setSelected(checked);
+    }
+
+    private List<String> getSelectedCategoriesFromUI() {
+        List<String> chosen = new ArrayList<>();
+        for (JCheckBox cb : categoryChecks) if (cb.isSelected()) chosen.add(cb.getText());
+        if (chosen.isEmpty()) {
+            chosen.addAll(QuestionBank.categories());
         }
-        return false;
-    }
-
-    private List<QuestionCategory> getActiveCategories() {
-        List<QuestionCategory> active = new ArrayList<>();
-        for (Map.Entry<QuestionCategory, JCheckBox> entry : categoryCheckBoxes.entrySet()) {
-            if (entry.getValue().isSelected()) {
-                active.add(entry.getKey());
-            }
-        }
-        return active;
-    }
-
-    private List<Long> parseRefs(String text) {
-        if (text == null || text.isBlank()) {
-            return List.of();
-        }
-        List<Long> result = new ArrayList<>();
-        Arrays.stream(text.split("[,，\\s]+"))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .forEach(s -> {
-                    try {
-                        result.add(Long.parseLong(s));
-                    } catch (NumberFormatException ignored) {
-                    }
-                });
-        return result;
-    }
-
-    private int randomRounds(int min, int max) {
-        if (max <= min) {
-            return min;
-        }
-        return min + random.nextInt(max - min + 1);
-    }
-
-    private void appendLog(String message) {
-        SwingUtilities.invokeLater(() -> {
-            String time = LocalTime.now().format(TIME_FORMATTER);
-            logArea.append("[" + time + "] " + message + System.lineSeparator());
-            logArea.setCaretPosition(logArea.getDocument().getLength());
-        });
-    }
-
-    private void openInspectionDialog() {
-        if (inspectionDialog == null) {
-            inspectionDialog = new IntelligentInspectionDialog(this, objectMapper, trustAllCheckBox.isSelected(), tokenField.getText(), endpointField.getText());
-        }
-        inspectionDialog.setVisible(true);
-    }
-
-    public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> {
-            KnowledgeRobotApp app = new KnowledgeRobotApp();
-            app.setVisible(true);
-        });
+        return chosen;
     }
 }
