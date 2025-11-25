@@ -42,6 +42,7 @@ public class KnowledgeRobotApp extends JFrame {
     private final JButton btnSelectAll = new JButton("全选");
     private final JButton btnDeselectAll = new JButton("全部取消");
     private final JButton saveConfigBtn = new JButton("保存设置");
+    private final JButton toInspection = new JButton("智能点检");
 
     // Auto chat panel widgets
     private final JPanel autoPanel = new JPanel(new BorderLayout());
@@ -82,6 +83,8 @@ public class KnowledgeRobotApp extends JFrame {
         nav.add(toConfig);
         nav.add(Box.createVerticalStrut(10));
         nav.add(toAuto);
+        nav.add(Box.createVerticalStrut(10));
+        nav.add(toInspection);
         nav.add(Box.createVerticalGlue());
 
         // Config panel content
@@ -176,6 +179,7 @@ public class KnowledgeRobotApp extends JFrame {
         saveConfigBtn.addActionListener(this::onSave);
         startBtn.addActionListener(this::onStart);
         stopBtn.addActionListener(this::onStop);
+        toInspection.addActionListener(e -> openInspection());
 
         btnSelectAll.addActionListener(e -> setAllCategoriesChecked(true));
         btnDeselectAll.addActionListener(e -> setAllCategoriesChecked(false));
@@ -237,6 +241,11 @@ public class KnowledgeRobotApp extends JFrame {
 
         customField.setText("");
         customField.requestFocus();
+    }
+
+    private void openInspection() {
+        SmartInspectionDialog dialog = new SmartInspectionDialog(this);
+        dialog.setVisible(true);
     }
 
     /* ====================== 与 Service 的衔接 ====================== */
