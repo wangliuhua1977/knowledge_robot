@@ -65,7 +65,7 @@ public class KnowledgeRobotApp extends JFrame {
     private AutoChatService service;
 
     public KnowledgeRobotApp() {
-        super("乐山智能点检");
+        super("四川电信智能体开发平台-乐山群聊助手智能点检服务");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setSize(1100, 720);
         setLocationRelativeTo(null);
