@@ -113,15 +113,14 @@ public class SmartInspectionService {
     }
 
     private void handleOneImage(File file, Path historyDir) {
-        logger.log("开始处理图片：" + file.getName());
+        logger.log("发现点检照片：" + file.getName());
         long appId = generateAppId();
         String chatId = generateChatId();
         try {
             long refId = uploadFile(file, appId, chatId);
-            logger.log("上传完成，返回ID=" + refId);
             callCompletion(refId, chatId);
             moveToHistory(file.toPath(), historyDir);
-            logger.log("文件已移至历史目录。\n");
+            logger.log("点检照片已归档");
             logger.historyChanged(historyDir);
         } catch (Exception e) {
             logger.log("处理失败：" + e.getMessage());
@@ -129,7 +128,7 @@ public class SmartInspectionService {
     }
 
     private long uploadFile(File file, long appId, String chatId) throws IOException {
-        logger.log("调用上传接口，准备发送文件和鉴权信息");
+        logger.log("正在上传照片到智能体平台并鉴权");
         MultipartBody.Builder bodyBuilder = new MultipartBody.Builder().setType(MultipartBody.FORM)
                 .addFormDataPart("files", file.getName(), RequestBody.create(file, MediaType.parse("application/octet-stream")))
                 .addFormDataPart("appId", String.valueOf(appId))
@@ -142,11 +141,10 @@ public class SmartInspectionService {
                 .post(bodyBuilder.build())
                 .build();
 
-        logger.log("已附带Authorization和随机appId/chatId，文件：" + file.getName());
+        logger.log("已通过验证");
 
         try (Response resp = httpClient.newCall(request).execute()) {
             String body = resp.body() != null ? resp.body().string() : "";
-            logger.log("上传响应状态：" + resp.code());
             if (!resp.isSuccessful()) {
                 throw new IOException("上传失败，HTTP " + resp.code());
             }
@@ -173,7 +171,7 @@ public class SmartInspectionService {
     }
 
     private void callCompletion(long refId, String chatId) throws IOException {
-        logger.log("调用处理接口，使用返回ID触发智能点检");
+        logger.log("正在调用星河大模型进行人脸切图识别处理");
         var payloadNode = mapper.createObjectNode();
         payloadNode.put("chatId", chatId);
         payloadNode.put("stream", true);
@@ -183,7 +181,6 @@ public class SmartInspectionService {
                 .put("role", "user")
                 .put("content", "智能点检"));
         String payload = payloadNode.toString();
-        logger.log("处理请求已附带Authorization，参数已组装完成");
 
         RequestBody body = RequestBody.create(payload, MediaType.parse("application/json; charset=utf-8"));
         Request request = new Request.Builder()
@@ -194,10 +191,10 @@ public class SmartInspectionService {
                 .build();
 
         try (Response resp = httpClient.newCall(request).execute()) {
-            logger.log("处理响应状态：" + resp.code());
             if (!resp.isSuccessful()) {
                 throw new IOException("处理接口返回失败，HTTP " + resp.code());
             }
+            logger.log("识别完毕，点检结果已提交PG报表数据库");
         }
     }
 

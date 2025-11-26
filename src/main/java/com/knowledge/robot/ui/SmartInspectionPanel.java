@@ -325,31 +325,41 @@ public class SmartInspectionPanel extends JPanel implements SmartInspectionLogge
     private static class HistoryRow {
         private final Path path;
         private final Date time;
-        private final ImageIcon thumbnail;
+        private ImageIcon thumbnail;
+        private boolean thumbnailLoaded;
 
         HistoryRow(Path path) throws IOException {
             this.path = path;
             this.time = new Date(Files.getLastModifiedTime(path).toMillis());
-            this.thumbnail = createThumb(path);
         }
 
         Path path() { return path; }
 
         Date time() { return time; }
 
-        ImageIcon thumbnail() { return thumbnail; }
+        ImageIcon thumbnail() {
+            if (!thumbnailLoaded) {
+                thumbnail = createThumb(path);
+                thumbnailLoaded = true;
+            }
+            return thumbnail;
+        }
 
         String fileName() { return path.getFileName().toString(); }
 
-        private ImageIcon createThumb(Path p) throws IOException {
-            java.awt.image.BufferedImage img = javax.imageio.ImageIO.read(p.toFile());
-            if (img == null) {
+        private ImageIcon createThumb(Path p) {
+            try {
+                java.awt.image.BufferedImage img = javax.imageio.ImageIO.read(p.toFile());
+                if (img == null) {
+                    return new ImageIcon();
+                }
+                int targetW = 120;
+                int targetH = 80;
+                Image scaled = img.getScaledInstance(targetW, targetH, Image.SCALE_SMOOTH);
+                return new ImageIcon(scaled);
+            } catch (IOException e) {
                 return new ImageIcon();
             }
-            int targetW = 120;
-            int targetH = 80;
-            Image scaled = img.getScaledInstance(targetW, targetH, Image.SCALE_SMOOTH);
-            return new ImageIcon(scaled);
         }
     }
 
