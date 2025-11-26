@@ -8,6 +8,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.FileTime;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -203,6 +205,7 @@ public class SmartInspectionService {
         String timestamp = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss").format(LocalDateTime.now());
         Path target = historyDir.resolve(timestamp + "_" + file.getFileName());
         Files.move(file, target, StandardCopyOption.REPLACE_EXISTING);
+        Files.setLastModifiedTime(target, FileTime.from(Instant.now()));
     }
 
 
