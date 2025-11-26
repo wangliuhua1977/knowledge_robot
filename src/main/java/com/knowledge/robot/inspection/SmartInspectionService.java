@@ -115,9 +115,9 @@ public class SmartInspectionService {
         long appId = generateAppId();
         String chatId = generateChatId();
         try {
-            uploadFile(file, appId, chatId);
-            logger.log("上传成功，使用 appId=" + appId);
-            callCompletion(appId, chatId);
+            long refId = uploadFile(file, appId, chatId);
+            logger.log("上传成功，refId=" + refId + ", appId=" + appId);
+            callCompletion(refId, chatId);
             moveToHistory(file.toPath(), historyDir);
             logger.log("文件已移至历史目录。\n");
         } catch (Exception e) {
@@ -149,8 +149,26 @@ public class SmartInspectionService {
             if (!resp.isSuccessful()) {
                 throw new IOException("上传失败，HTTP " + resp.code());
             }
-            return appId;
+            long refId = parseRefId(body);
+            return refId;
         }
+    }
+
+    private long parseRefId(String body) throws IOException {
+        var node = mapper.readTree(body);
+        var images = node.path("resultObject").path("image");
+        if (images.isArray() && images.size() > 0) {
+            var idNode = images.get(0).get("id");
+            if (idNode != null && !idNode.isNull()) {
+                String idText = idNode.asText();
+                try {
+                    return Long.parseLong(idText);
+                } catch (NumberFormatException ex) {
+                    throw new IOException("上传响应ID格式错误: " + idText, ex);
+                }
+            }
+        }
+        throw new IOException("上传响应缺少图片ID");
     }
 
     private void callCompletion(long refId, String chatId) throws IOException {
