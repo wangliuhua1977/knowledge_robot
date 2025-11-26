@@ -1,0 +1,11 @@
+com\knowledge\robot\util\QuestionBank$Gen.class
+com\knowledge\robot\ui\KnowledgeRobotApp$1.class
+com\knowledge\robot\service\StatsStore.class
+com\knowledge\robot\util\IdUtil.class
+com\knowledge\robot\util\QuestionBank.class
+com\knowledge\robot\service\AutoChatService.class
+com\knowledge\robot\util\AppConfig.class
+com\knowledge\robot\http\ChatClient$1.class
+com\knowledge\robot\ui\KnowledgeRobotApp.class
+com\knowledge\robot\http\ChatClient.class
+com\knowledge\robot\Main.class
