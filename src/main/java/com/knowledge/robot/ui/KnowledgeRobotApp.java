@@ -23,6 +23,7 @@ public class KnowledgeRobotApp extends JFrame {
     private static final String KEY_SELECTED_CATS = "selected_categories";
     private static final String KEY_RANDOM = "random_interval";
     private static final String KEY_MAX_SEC = "max_interval";
+    private static final String KEY_THEME = "theme";
     private static final String SEP = "\u001F"; // 文件不可见分隔符
 
     // 样式：亮蓝色（问题行）
@@ -34,7 +35,12 @@ public class KnowledgeRobotApp extends JFrame {
 
     private final CardLayout cardLayout = new CardLayout();
     private final JPanel cardPanel = new JPanel(cardLayout);
+    private final JPanel nav = new JPanel();
     private final SmartInspectionPanel inspectionPanel = new SmartInspectionPanel();
+    private final JComboBox<String> themeCombo = new JComboBox<>();
+    private final JLabel themeLabel = new JLabel("配色主题");
+    private final JButton navToConfig = new JButton("配置");
+    private final JButton navToInspectionTab = new JButton("智能点检");
 
     // Config panel widgets
     private final JPanel configPanel = new JPanel(new BorderLayout());
@@ -69,6 +75,7 @@ public class KnowledgeRobotApp extends JFrame {
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setSize(1100, 720);
         setLocationRelativeTo(null);
+        initThemeCombo();
         buildUI();
         bindActions();
         loadPreferencesAndApply();        // 启动时恢复上次选择（首次默认全选）
@@ -87,14 +94,14 @@ public class KnowledgeRobotApp extends JFrame {
 
     private void buildUI() {
         // Left navigation
-        JPanel nav = new JPanel();
         nav.setLayout(new BoxLayout(nav, BoxLayout.Y_AXIS));
         nav.setBorder(BorderFactory.createEmptyBorder(10,10,10,10));
-        JButton toConfig = new JButton("配置");
-        JButton toInspectionTab = new JButton("智能点检");
-        nav.add(toConfig);
+        nav.add(navToConfig);
         nav.add(Box.createVerticalStrut(10));
-        nav.add(toInspectionTab);
+        nav.add(navToInspectionTab);
+        nav.add(Box.createVerticalStrut(15));
+        nav.add(themeLabel);
+        nav.add(themeCombo);
         nav.add(Box.createVerticalGlue());
 
         // Config panel content
@@ -182,11 +189,13 @@ public class KnowledgeRobotApp extends JFrame {
         getContentPane().add(nav, BorderLayout.WEST);
         getContentPane().add(cardPanel, BorderLayout.CENTER);
 
-        toConfig.addActionListener(e -> cardLayout.show(cardPanel, "cfg"));
-        toInspectionTab.addActionListener(e -> {
+        navToConfig.addActionListener(e -> cardLayout.show(cardPanel, "cfg"));
+        navToInspectionTab.addActionListener(e -> {
             inspectionPanel.onShow();
             cardLayout.show(cardPanel, "inspection");
         });
+
+        applyTheme(ThemePalette.DEFAULT);
     }
 
     private void bindActions() {
@@ -239,6 +248,98 @@ public class KnowledgeRobotApp extends JFrame {
         startBtn.setEnabled(true);
         stopBtn.setEnabled(false);
         nextInLabel.setText("下次对话倒计时：—");
+    }
+
+    private void initThemeCombo() {
+        themeCombo.removeAllItems();
+        for (ThemePalette palette : ThemePalette.values()) {
+            themeCombo.addItem(palette.displayName());
+        }
+        themeCombo.addActionListener(e -> {
+            ThemePalette palette = ThemePalette.fromDisplayName((String) themeCombo.getSelectedItem());
+            prefs.put(KEY_THEME, palette.name());
+            applyTheme(palette);
+        });
+    }
+
+    private void applyTheme(ThemePalette palette) {
+        getContentPane().setBackground(palette.background());
+        cardPanel.setBackground(palette.panel());
+        nav.setBackground(palette.panel());
+        configPanel.setBackground(palette.panel());
+        categoryPanel.setBackground(palette.panel());
+        autoPanel.setBackground(palette.panel());
+        thinkArea.setBackground(palette.panel());
+        thinkArea.setForeground(palette.text());
+        convoPane.setBackground(palette.panel());
+        convoPane.setForeground(palette.text());
+        customField.setBackground(palette.panel());
+        customField.setForeground(palette.text());
+        runCountLabel.setForeground(palette.text());
+        nextInLabel.setForeground(palette.text());
+        themeLabel.setForeground(palette.text());
+        themeCombo.setBackground(palette.panel());
+        themeCombo.setForeground(palette.text());
+
+        updateContainerColors(configPanel, palette);
+        updateContainerColors(autoPanel, palette);
+        updateContainerColors(nav, palette);
+
+        styleButtons(palette, startBtn, stopBtn, btnSelectAll, btnDeselectAll, saveConfigBtn,
+                toInspection, sendBtn, navToConfig, navToInspectionTab);
+        inspectionPanel.applyTheme(palette);
+        repaint();
+    }
+
+    private void updateContainerColors(Container container, ThemePalette palette) {
+        container.setBackground(palette.panel());
+        for (Component component : container.getComponents()) {
+            if (component instanceof JScrollPane scrollPane) {
+                scrollPane.setBackground(palette.panel());
+                scrollPane.getViewport().setBackground(palette.panel());
+            }
+            if (component instanceof JSplitPane splitPane) {
+                splitPane.setBackground(palette.panel());
+            }
+            if (component instanceof JLabel label) {
+                label.setForeground(palette.text());
+            }
+            if (component instanceof JTable table) {
+                table.setBackground(palette.panel());
+                table.setForeground(palette.text());
+                if (table.getTableHeader() != null) {
+                    table.getTableHeader().setBackground(palette.background());
+                    table.getTableHeader().setForeground(palette.text());
+                }
+            }
+            if (component instanceof JTextComponent textComponent) {
+                textComponent.setBackground(palette.panel());
+                textComponent.setForeground(palette.text());
+                textComponent.setCaretColor(palette.text());
+                textComponent.setSelectionColor(palette.accent());
+            }
+            if (component instanceof JCheckBox cb) {
+                cb.setBackground(palette.panel());
+                cb.setForeground(palette.text());
+            }
+            if (component instanceof JSpinner spinner) {
+                spinner.setBackground(palette.panel());
+                spinner.setForeground(palette.text());
+            }
+            if (component instanceof Container cont) {
+                updateContainerColors(cont, palette);
+            }
+        }
+    }
+
+    private void styleButtons(ThemePalette palette, AbstractButton... buttons) {
+        for (AbstractButton button : buttons) {
+            if (button == null) continue;
+            button.setBackground(palette.accent());
+            button.setForeground(palette.accentText());
+            button.setOpaque(true);
+            button.setBorder(BorderFactory.createLineBorder(palette.accent().darker()));
+        }
     }
 
     private void onSendCustom(ActionEvent e) {
@@ -379,6 +480,11 @@ public class KnowledgeRobotApp extends JFrame {
         max = Math.max(1, Math.min(1800, max));
         maxIntervalSlider.setValue(max);
         maxIntervalLabel.setText("最大间隔秒数: " + maxIntervalSlider.getValue());
+
+        String themeName = prefs.get(KEY_THEME, ThemePalette.DEFAULT.name());
+        ThemePalette palette = ThemePalette.valueOf(themeName);
+        themeCombo.setSelectedItem(palette.displayName());
+        applyTheme(palette);
     }
 
     private void setAllCategoriesChecked(boolean checked) {
