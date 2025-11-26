@@ -4,6 +4,7 @@ import com.knowledge.robot.inspection.SmartInspectionConfig;
 import com.knowledge.robot.inspection.SmartInspectionLogger;
 import com.knowledge.robot.inspection.SmartInspectionService;
 import com.knowledge.robot.util.AppSettings;
+import com.knowledge.robot.ui.ThemePalette;
 
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
@@ -124,6 +125,55 @@ public class SmartInspectionPanel extends JPanel implements SmartInspectionLogge
                 }
             }
         });
+    }
+
+    public void applyTheme(ThemePalette palette) {
+        setBackground(palette.panel());
+        params.setBackground(palette.panel());
+        historyPanel.setBackground(palette.panel());
+
+        folderField.setBackground(palette.panel());
+        folderField.setForeground(palette.text());
+        intervalSpinner.setBackground(palette.panel());
+        intervalSpinner.setForeground(palette.text());
+
+        styleButton(startBtn, palette);
+        styleButton(stopBtn, palette);
+        styleButton(groupByDay, palette);
+        styleButton(groupByRange, palette);
+
+        processLogArea.setBackground(palette.panel());
+        processLogArea.setForeground(palette.text());
+        if (processLogArea.getParent() instanceof JViewport viewport && viewport.getParent() instanceof JComponent scroll) {
+            viewport.setBackground(palette.panel());
+            scroll.setBackground(palette.panel());
+        }
+
+        for (JSpinner spinner : new JSpinner[]{fromDateSpinner, toDateSpinner, daySpinner}) {
+            spinner.setBackground(palette.panel());
+            spinner.setForeground(palette.text());
+        }
+
+        historyTable.setBackground(palette.panel());
+        historyTable.setForeground(palette.text());
+        if (historyTable.getTableHeader() != null) {
+            historyTable.getTableHeader().setBackground(palette.background());
+            historyTable.getTableHeader().setForeground(palette.text());
+        }
+        if (historyTable.getParent() instanceof JViewport viewport) {
+            viewport.setBackground(palette.panel());
+            if (viewport.getParent() instanceof JComponent scroll) {
+                scroll.setBackground(palette.panel());
+            }
+        }
+        repaint();
+    }
+
+    private void styleButton(AbstractButton button, ThemePalette palette) {
+        button.setBackground(palette.accent());
+        button.setForeground(palette.accentText());
+        button.setOpaque(true);
+        button.setBorder(BorderFactory.createLineBorder(palette.accent().darker()));
     }
 
     public void onShow() {
