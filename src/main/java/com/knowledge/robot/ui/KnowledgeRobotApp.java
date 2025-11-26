@@ -1,71 +1,49 @@
 package com.knowledge.robot.ui;
 
-import com.knowledge.robot.service.AutoChatService;
-import com.knowledge.robot.service.StatsStore;
-import com.knowledge.robot.util.QuestionBank;
-
 import javax.swing.*;
-import javax.swing.border.TitledBorder;
-import javax.swing.text.*;
+import javax.swing.border.*;
+import javax.swing.text.JTextComponent;
 import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
-import java.util.List;
-import java.util.*;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.prefs.Preferences;
-import java.util.stream.Collectors;
 
+/**
+ * 星际科技风深色主题主窗口：
+ * 只保留“智能点检”界面，
+ * 全局深色 + 霓虹蓝高亮，
+ * 日志栏单独做“监控终端”风格的层次配色。
+ *
+ * 约定：SmartInspectionPanel 中的日志文本组件需设置 name：
+ *   logArea.setName("logArea");
+ */
 public class KnowledgeRobotApp extends JFrame {
-    private static final String PREF_NODE = "com.knowledge.robot.ui.KnowledgeRobotApp";
-    private static final String KEY_SELECTED_CATS = "selected_categories";
-    private static final String KEY_RANDOM = "random_interval";
-    private static final String KEY_MAX_SEC = "max_interval";
-    private static final String KEY_THEME = "theme";
-    private static final String SEP = "\u001F"; // 文件不可见分隔符
 
-    // 样式：亮蓝色（问题行）
-    private static final Color BRIGHT_BLUE = new Color(84, 195, 230); // #007AFF
-    // 样式：思考栏暗色
-    private static final Color THINK_DARK = new Color(170, 170, 170);
+    // ====== 全局科技感配色 ======
+    // 整体背景：近黑深蓝
+    private static final Color BG_MAIN  = new Color(10, 12, 20);
+    // 内部面板：略亮一点
+    private static final Color BG_PANEL = new Color(18, 22, 35);
+    // 一般输入/文本区域背景
+    private static final Color BG_INPUT = new Color(22, 28, 45);
 
-    private final Preferences prefs = Preferences.userRoot().node(PREF_NODE);
+    // 主文字 / 次文字
+    private static final Color TEXT_MAIN  = new Color(220, 230, 245);
+    private static final Color TEXT_MUTED = new Color(130, 145, 170);
 
-    private final CardLayout cardLayout = new CardLayout();
-    private final JPanel cardPanel = new JPanel(cardLayout);
-    private final JPanel nav = new JPanel();
+    // 霓虹高亮蓝
+    private static final Color ACCENT      = new Color(0, 174, 255);
+    private static final Color ACCENT_SOFT = new Color(70, 190, 255);
+
+    // ====== 日志栏专用配色（制造层次感） ======
+    // 滚动区外圈背景（比内面板略深一些）
+    private static final Color LOG_BG_OUTER = new Color(8, 14, 28);
+    // 日志文本区背景（比普通输入略亮）
+    private static final Color LOG_BG_INNER = new Color(16, 26, 48);
+    // 日志文字颜色：偏蓝的亮白
+    private static final Color LOG_TEXT     = new Color(192, 230, 255);
+
+    // 仅保留智能点检主面板
     private final SmartInspectionPanel inspectionPanel = new SmartInspectionPanel();
-    private final JButton navToConfig = new JButton("配置");
-    private final JButton navToInspectionTab = new JButton("智能点检");
-
-    // Config panel widgets
-    private final JPanel configPanel = new JPanel(new BorderLayout());
-    private final JPanel categoryPanel = new JPanel(new GridLayout(0, 3, 8, 8));
-    private final JSlider maxIntervalSlider = new JSlider(1, 1800, 10);
-    private final JLabel maxIntervalLabel = new JLabel("最大间隔秒数: 10");
-    private final JCheckBox randomIntervalCheck = new JCheckBox("随机间隔 (1 ~ 最大间隔)", true);
-    private final JButton btnSelectAll = new JButton("全选");
-    private final JButton btnDeselectAll = new JButton("全部取消");
-    private final JButton saveConfigBtn = new JButton("保存设置");
-
-    // Auto chat panel widgets
-    private final JPanel autoPanel = new JPanel(new BorderLayout());
-    private final JTextArea thinkArea = new JTextArea();               // 思考栏（暗色 + 斜体）
-    private final JTextPane convoPane = new JTextPane();               // 对话过程（问题亮蓝）
-    private final JButton startBtn = new JButton("开始自动对话");
-    private final JButton stopBtn = new JButton("停止");
-    private final JLabel runCountLabel = new JLabel("累计发起对话：0");
-    private final JLabel nextInLabel = new JLabel("下次对话倒计时：—");
-
-    // 自定义问题
-    private final JTextField customField = new JTextField();
-    private final JButton sendBtn = new JButton("发送");
-
-    private final List<JCheckBox> categoryChecks = new ArrayList<>();
-    private final AtomicBoolean running = new AtomicBoolean(false);
-    private AutoChatService service;
 
     public KnowledgeRobotApp() {
         super("四川电信智能体开发平台-乐山群聊助手智能点检服务");
@@ -74,407 +52,219 @@ public class KnowledgeRobotApp extends JFrame {
         setLocationRelativeTo(null);
 
         buildUI();
-        bindActions();
-        loadPreferencesAndApply();        // 启动时恢复上次选择（首次默认全选）
-        refreshRunCount();
-        SwingUtilities.invokeLater(() -> {
-            inspectionPanel.onShow();
-            cardLayout.show(cardPanel, "inspection");
-        });
+        applySciFiTheme();
+
+        // 关闭窗口时，顺便停掉后台任务
         addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
                 inspectionPanel.stopService();
             }
         });
+
+        // 显示时让面板做自己的初始化（重置控件等）
+        SwingUtilities.invokeLater(inspectionPanel::onShow);
     }
 
+    /** 只展示智能点检面板，不再有配置/自动对话标签页 */
     private void buildUI() {
-        // Left navigation
-        nav.setLayout(new BoxLayout(nav, BoxLayout.Y_AXIS));
-        nav.setBorder(BorderFactory.createEmptyBorder(10,10,10,10));
-        nav.add(navToConfig);
-        nav.add(Box.createVerticalStrut(10));
-        nav.add(navToInspectionTab);
-        nav.add(Box.createVerticalGlue());
-
-        // Config panel content
-        JPanel cfgTop = new JPanel(new BorderLayout());
-        cfgTop.setBorder(new TitledBorder("兴趣分类（多选）"));
-
-        for (String cat : QuestionBank.categories()) {
-            JCheckBox cb = new JCheckBox(cat, true); // 首次默认全选，之后由 loadPreferences 覆盖
-            categoryChecks.add(cb);
-            categoryPanel.add(cb);
-        }
-        JScrollPane catScroll = new JScrollPane(categoryPanel);
-        cfgTop.add(catScroll, BorderLayout.CENTER);
-
-        JPanel cfgBottom = new JPanel(new GridBagLayout());
-        GridBagConstraints gc = new GridBagConstraints();
-        gc.insets = new Insets(6,6,6,6);
-        gc.gridx = 0; gc.gridy = 0; gc.anchor = GridBagConstraints.WEST;
-        cfgBottom.add(new JLabel("自动对话间隔"), gc);
-        gc.gridx = 1;
-        maxIntervalSlider.addChangeListener(e -> maxIntervalLabel.setText("最大间隔秒数: " + maxIntervalSlider.getValue()));
-        cfgBottom.add(maxIntervalSlider, gc);
-        gc.gridx = 2;
-        cfgBottom.add(maxIntervalLabel, gc);
-
-        gc.gridx = 0; gc.gridy = 1; gc.gridwidth = 1;
-        cfgBottom.add(randomIntervalCheck, gc);
-        gc.gridx = 1;
-        cfgBottom.add(btnSelectAll, gc);
-        gc.gridx = 2;
-        cfgBottom.add(btnDeselectAll, gc);
-
-        gc.gridx = 2; gc.gridy = 2; gc.gridwidth = 1; gc.anchor = GridBagConstraints.EAST;
-        cfgBottom.add(saveConfigBtn, gc);
-
-        JPanel cfgContainer = new JPanel(new BorderLayout(10,10));
-        cfgContainer.add(cfgTop, BorderLayout.CENTER);
-        cfgContainer.add(cfgBottom, BorderLayout.SOUTH);
-        configPanel.add(cfgContainer, BorderLayout.CENTER);
-
-        // Auto chat panel content
-        JPanel topBar = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        topBar.add(startBtn);
-        topBar.add(stopBtn);
-        stopBtn.setEnabled(false);
-        topBar.add(runCountLabel);
-        topBar.add(new JSeparator(SwingConstants.VERTICAL));
-        topBar.add(nextInLabel);
-
-        // 思考栏：暗色 + 斜体
-        thinkArea.setEditable(false);
-        thinkArea.setLineWrap(true);
-        thinkArea.setWrapStyleWord(true);
-        thinkArea.setForeground(THINK_DARK);
-        thinkArea.setFont(thinkArea.getFont().deriveFont(Font.ITALIC));
-
-        // 对话区（Styled）
-        convoPane.setEditable(false);
-        convoPane.setBorder(BorderFactory.createEmptyBorder(8,8,8,8));
-
-        JScrollPane thinkScroll = new JScrollPane(thinkArea);
-        thinkScroll.setBorder(new TitledBorder("思维链"));
-        JScrollPane convoScroll = new JScrollPane(convoPane);
-        convoScroll.setBorder(new TitledBorder("交流栏"));
-
-        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, convoScroll, thinkScroll);
-        split.setDividerLocation(360);
-        autoPanel.add(topBar, BorderLayout.NORTH);
-        autoPanel.add(split, BorderLayout.CENTER);
-
-        // 底部：自定义问题输入
-        JPanel bottomBar = new JPanel(new BorderLayout(8, 8));
-        bottomBar.setBorder(BorderFactory.createEmptyBorder(8,8,8,8));
-        bottomBar.add(customField, BorderLayout.CENTER);
-        bottomBar.add(sendBtn, BorderLayout.EAST);
-        autoPanel.add(bottomBar, BorderLayout.SOUTH);
-
-        // Cards
-        cardPanel.add(configPanel, "cfg");
-        cardPanel.add(autoPanel, "auto");
-        cardPanel.add(inspectionPanel, "inspection");
-
-        // Root
         getContentPane().setLayout(new BorderLayout());
-        getContentPane().add(nav, BorderLayout.WEST);
-        getContentPane().add(cardPanel, BorderLayout.CENTER);
-
-        navToConfig.addActionListener(e -> cardLayout.show(cardPanel, "cfg"));
-        navToInspectionTab.addActionListener(e -> {
-            inspectionPanel.onShow();
-            cardLayout.show(cardPanel, "inspection");
-        });
-
-        applyTheme(ThemePalette.DEFAULT);
+        getContentPane().add(inspectionPanel, BorderLayout.CENTER);
     }
 
-    private void bindActions() {
-        saveConfigBtn.addActionListener(this::onSave);
-        startBtn.addActionListener(this::onStart);
-        stopBtn.addActionListener(this::onStop);
-        btnSelectAll.addActionListener(e -> setAllCategoriesChecked(true));
-        btnDeselectAll.addActionListener(e -> setAllCategoriesChecked(false));
+    // ===================== 科技感主题应用 =====================
 
-        // 发送自定义问题：按钮/回车
-        sendBtn.addActionListener(this::onSendCustom);
-        customField.addActionListener(this::onSendCustom);
-        InputMap im = customField.getInputMap(JComponent.WHEN_FOCUSED);
-        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "SEND");
-        customField.getActionMap().put("SEND", new AbstractAction() {
-            @Override public void actionPerformed(ActionEvent e) { onSendCustom(e); }
-        });
+    private void applySciFiTheme() {
+        // 整个窗口外圈来一圈电光蓝边框
+        getRootPane().setBorder(new MatteBorder(1, 1, 1, 1, ACCENT));
+        getContentPane().setBackground(BG_MAIN);
+
+        // 递归应用到所有子组件
+        applySciFiToContainer(getContentPane());
     }
 
-    /* ====================== 事件处理 ====================== */
+    /**
+     * 遍历所有组件，根据类型应用深色 + 霓虹蓝风格。
+     */
+    private void applySciFiToContainer(Container container) {
+        container.setBackground(BG_PANEL);
 
-    private void onSave(ActionEvent e) {
-        if (getSelectedCategoriesFromUI().isEmpty()) {
-            JOptionPane.showMessageDialog(this, "请至少选择一个对话分类。");
-            return;
-        }
-        persistPreferences();
-        JOptionPane.showMessageDialog(this, "配置已保存。下次启动将自动恢复。");
-    }
+        for (Component comp : container.getComponents()) {
 
-    private void onStart(ActionEvent e) {
-        if (getSelectedCategoriesFromUI().isEmpty()) {
-            JOptionPane.showMessageDialog(this, "请至少选择一个对话分类。");
-            return;
-        }
-        running.set(true);
-        startBtn.setEnabled(false);
-        stopBtn.setEnabled(true);
-        // 新一轮开始：清空可视区
-        thinkArea.setText("");
-        setConvoText("");
-
-        ensureService();
-        service.start(running);
-    }
-
-    private void onStop(ActionEvent e) {
-        running.set(false);
-        if (service != null) service.stop();
-        startBtn.setEnabled(true);
-        stopBtn.setEnabled(false);
-        nextInLabel.setText("下次对话倒计时：—");
-    }
-
-
-
-    private void applyTheme(ThemePalette palette) {
-        getContentPane().setBackground(palette.background());
-        cardPanel.setBackground(palette.panel());
-        nav.setBackground(palette.panel());
-        configPanel.setBackground(palette.panel());
-        categoryPanel.setBackground(palette.panel());
-        autoPanel.setBackground(palette.panel());
-        thinkArea.setBackground(palette.panel());
-        thinkArea.setForeground(palette.text());
-        convoPane.setBackground(palette.panel());
-        convoPane.setForeground(palette.text());
-        customField.setBackground(palette.panel());
-        customField.setForeground(palette.text());
-        runCountLabel.setForeground(palette.text());
-        nextInLabel.setForeground(palette.text());
-
-
-        updateContainerColors(configPanel, palette);
-        updateContainerColors(autoPanel, palette);
-        updateContainerColors(nav, palette);
-
-        styleButtons(palette, startBtn, stopBtn, btnSelectAll, btnDeselectAll, saveConfigBtn,
-                 sendBtn, navToConfig, navToInspectionTab);
-        inspectionPanel.applyTheme(palette);
-        repaint();
-    }
-
-    private void updateContainerColors(Container container, ThemePalette palette) {
-        container.setBackground(palette.panel());
-        for (Component component : container.getComponents()) {
-            if (component instanceof JScrollPane scrollPane) {
-                scrollPane.setBackground(palette.panel());
-                scrollPane.getViewport().setBackground(palette.panel());
-            }
-            if (component instanceof JSplitPane splitPane) {
-                splitPane.setBackground(palette.panel());
-            }
-            if (component instanceof JLabel label) {
-                label.setForeground(palette.text());
-            }
-            if (component instanceof JTable table) {
-                table.setBackground(palette.panel());
-                table.setForeground(palette.text());
-                if (table.getTableHeader() != null) {
-                    table.getTableHeader().setBackground(palette.background());
-                    table.getTableHeader().setForeground(palette.text());
+            // 面板：深色背景 + 标题边框调成蓝色
+            if (comp instanceof JPanel panel) {
+                panel.setOpaque(true);
+                panel.setBackground(BG_PANEL);
+                Border b = panel.getBorder();
+                if (b instanceof TitledBorder tb) {
+                    tb.setTitleColor(ACCENT_SOFT);
+                    tb.setBorder(new LineBorder(ACCENT, 1, true));
                 }
             }
-            if (component instanceof JTextComponent textComponent) {
-                textComponent.setBackground(palette.panel());
-                textComponent.setForeground(palette.text());
-                textComponent.setCaretColor(palette.text());
-                textComponent.setSelectionColor(palette.accent());
+
+            // 文本组件统一交给 styleTextComponent
+            if (comp instanceof JTextComponent tc) {
+                styleTextComponent(tc);
             }
-            if (component instanceof JCheckBox cb) {
-                cb.setBackground(palette.panel());
-                cb.setForeground(palette.text());
+
+            // 标签文字颜色
+            if (comp instanceof JLabel label) {
+                label.setForeground(TEXT_MAIN);
             }
-            if (component instanceof JSpinner spinner) {
-                spinner.setBackground(palette.panel());
-                spinner.setForeground(palette.text());
+
+            // 按钮：电光蓝边框 + 深色按钮
+            if (comp instanceof AbstractButton btn) {
+                styleButton(btn);
             }
-            if (component instanceof Container cont) {
-                updateContainerColors(cont, palette);
+
+            // 滚动区域：普通和日志区分开处理
+            if (comp instanceof JScrollPane sp) {
+                sp.setBackground(BG_PANEL);
+                Component view = sp.getViewport().getView();
+
+                // ★ 日志栏滚动区：双层蓝边 + 深色外圈
+                if (view instanceof JTextComponent tcView &&
+                        "logArea".equals(tcView.getName())) {
+
+                    sp.getViewport().setBackground(LOG_BG_OUTER);
+                    sp.setBorder(new CompoundBorder(
+                            new MatteBorder(1, 1, 1, 1,
+                                    new Color(0, 160, 255)),   // 外圈电光蓝
+                            new MatteBorder(1, 1, 1, 1,
+                                    new Color(0, 35, 70))      // 内圈深蓝过渡
+                    ));
+                } else {
+                    // 普通滚动区
+                    sp.getViewport().setBackground(BG_INPUT);
+                    sp.setBorder(new LineBorder(ACCENT, 1, true));
+                }
+            }
+
+            // 表格：深色背景 + 蓝色网格 + 高亮表头
+            if (comp instanceof JTable table) {
+                table.setBackground(BG_INPUT);
+                table.setForeground(TEXT_MAIN);
+                table.setGridColor(new Color(50, 60, 90));
+                table.setSelectionBackground(new Color(0, 90, 160));
+                table.setSelectionForeground(TEXT_MAIN);
+                if (table.getTableHeader() != null) {
+                    table.getTableHeader().setBackground(new Color(15, 20, 32));
+                    table.getTableHeader().setForeground(ACCENT_SOFT);
+                    table.getTableHeader().setBorder(
+                            new MatteBorder(0, 0, 1, 0, ACCENT)
+                    );
+                }
+            }
+
+            // 分割条：细蓝线分界
+            if (comp instanceof JSplitPane split) {
+                split.setBackground(BG_PANEL);
+                split.setDividerSize(6);
+                split.setBorder(new MatteBorder(
+                        1, 0, 0, 0, new Color(30, 40, 60)
+                ));
+            }
+
+            // 选项卡（如果 SmartInspectionPanel 里用到了）
+            if (comp instanceof JTabbedPane tabs) {
+                tabs.setBackground(BG_PANEL);
+                tabs.setForeground(TEXT_MUTED);
+                tabs.setBorder(new MatteBorder(1, 1, 0, 1, ACCENT));
+            }
+
+            // 数字选择器 / Spinner
+            if (comp instanceof JSpinner spinner) {
+                spinner.setBackground(BG_INPUT);
+                spinner.setForeground(TEXT_MAIN);
+                JComponent editor = spinner.getEditor();
+                editor.setBackground(BG_INPUT);
+                editor.setForeground(TEXT_MAIN);
+            }
+
+            // 递归处理所有子容器
+            if (comp instanceof Container child) {
+                applySciFiToContainer(child);
             }
         }
     }
 
-    private void styleButtons(ThemePalette palette, AbstractButton... buttons) {
-        for (AbstractButton button : buttons) {
-            if (button == null) continue;
-            button.setBackground(palette.accent());
-            button.setForeground(palette.accentText());
-            button.setOpaque(true);
-            button.setBorder(BorderFactory.createLineBorder(palette.accent().darker()));
+    /**
+     * 文本组件统一样式：
+     * 其中 name="logArea" 的走日志专用样式。
+     */
+    private void styleTextComponent(JTextComponent tc) {
+        // ★ 日志栏：终端风格单独处理
+        if ("logArea".equals(tc.getName())) {
+            styleLogConsole(tc);
+            return;
         }
+
+        // 普通输入框 / 文本框
+        tc.setOpaque(true);
+        tc.setBackground(BG_INPUT);
+        tc.setForeground(TEXT_MAIN);
+        tc.setCaretColor(ACCENT_SOFT);
+        tc.setSelectionColor(new Color(0, 100, 180));
+        tc.setBorder(new CompoundBorder(
+                new LineBorder(new Color(0, 120, 200), 1, true),
+                new EmptyBorder(3, 6, 3, 6)
+        ));
     }
 
-    private void onSendCustom(ActionEvent e) {
-        String q = customField.getText().trim();
-        if (q.isEmpty()) return;
+    /**
+     * 日志栏专用样式：
+     * 更亮的深蓝背景 + 偏蓝亮字 + 等宽字体 + 蓝色边框。
+     */
+    // 日志栏专用样式：支持中文的终端风
+    private void styleLogConsole(JTextComponent tc) {
+        tc.setOpaque(true);
+        tc.setBackground(LOG_BG_INNER);
+        tc.setForeground(LOG_TEXT);
+        tc.setCaretColor(ACCENT_SOFT);
+        tc.setSelectionColor(new Color(0, 90, 170));
 
-        ensureService();
-        // 先把“问题”行写入对话区（加粗+加大+亮蓝）
-      //  appendQuestionLine(q);
-        // 交给服务跑一轮（不会触发自动调度）
-        service.askOnce(q);
-
-        customField.setText("");
-        customField.requestFocus();
-    }
-
-    private void openInspection() {
-        SmartInspectionDialog dialog = new SmartInspectionDialog(this);
-        dialog.setVisible(true);
-    }
-
-    /* ====================== 与 Service 的衔接 ====================== */
-
-    /** 确保 service 可用；未启动自动也能手工问 */
-    private void ensureService() {
-        if (service != null) return;
-        service = new AutoChatService(
-                this::getSelectedCategoriesFromUI,
-                () -> randomIntervalCheck.isSelected(),
-                () -> maxIntervalSlider.getValue(),
-                this::appendConvoStream,
-                this::appendThinkStream,
-                this::onOneDialogFinished,
-                this::updateCountdownLabel
-        );
-    }
-
-    private void appendConvoStream(String text) {
-        SwingUtilities.invokeLater(() -> {
-            if ("-------".equals(text.trim())) {
-                appendSeparator();
-            } else if (text.startsWith("我: ")) {
-                appendQuestionLine(text.substring("我: ".length()));
-            } else if (text.startsWith("助手: ")) {
-                appendAssistantBlock(text.substring("助手: ".length()));
-            } else {
-                appendNormal(text + "\n");
-            }
-        });
-    }
-
-    private void appendThinkStream(String text) {
-        SwingUtilities.invokeLater(() -> {
-            if (text.contains("<<CLEAR_THOUGHTS>>")) {
-                thinkArea.setText("");
-                thinkArea.setCaretPosition(0);
-            } else {
-                thinkArea.append(text); // 流式、无时间戳、中文段落样式
-                thinkArea.setCaretPosition(thinkArea.getDocument().getLength());
-            }
-        });
-    }
-
-    private void onOneDialogFinished() {
-        StatsStore.increment();
-        refreshRunCount();
-    }
-
-    private void refreshRunCount() {
-        runCountLabel.setText("累计发起对话：" + StatsStore.read());
-    }
-
-    private void updateCountdownLabel(int seconds) {
-        SwingUtilities.invokeLater(() -> nextInLabel.setText("下次对话倒计时：" + seconds + " s"));
-    }
-
-    /* ====================== 对话区样式辅助 ====================== */
-
-    private void setConvoText(String text) {
-        convoPane.setText(text);
-    }
-
-    private void appendQuestionLine(String question) {
-        int baseSize = convoPane.getFont().getSize();
-        appendStyled("我: " + question + "\n", true, baseSize + 1, BRIGHT_BLUE);
-    }
-
-    private void appendAssistantBlock(String content) {
-        appendStyled("助手: ", true, convoPane.getFont().getSize(), null); // 前缀加粗
-        appendStyled(content + "\n", false, convoPane.getFont().getSize(), null);
-    }
-
-    private void appendSeparator() {
-        appendStyled("-------\n", false, convoPane.getFont().getSize(), Color.GRAY);
-    }
-
-    private void appendNormal(String text) {
-        appendStyled(text, false, convoPane.getFont().getSize(), null);
-    }
-
-    private void appendStyled(String text, boolean bold, int fontSize, Color color) {
-        StyledDocument doc = convoPane.getStyledDocument();
-        SimpleAttributeSet attrs = new SimpleAttributeSet();
-        StyleConstants.setBold(attrs, bold);
-        StyleConstants.setFontSize(attrs, fontSize);
-        if (color != null) StyleConstants.setForeground(attrs, color);
-        try {
-            doc.insertString(doc.getLength(), text, attrs);
-            convoPane.setCaretPosition(doc.getLength());
-        } catch (BadLocationException ignored) {}
-    }
-
-    /* ====================== 偏好设置（持久化） ====================== */
-
-    private void persistPreferences() {
-        // 保存分类
-        String catsJoined = getSelectedCategoriesFromUI().stream().collect(Collectors.joining(SEP));
-        prefs.put(KEY_SELECTED_CATS, catsJoined);
-        // 保存随机与间隔
-        prefs.putBoolean(KEY_RANDOM, randomIntervalCheck.isSelected());
-        prefs.putInt(KEY_MAX_SEC, maxIntervalSlider.getValue());
-    }
-
-    private void loadPreferencesAndApply() {
-        // 分类
-        String saved = prefs.get(KEY_SELECTED_CATS, null);
-        if (saved == null || saved.isBlank()) {
-            setAllCategoriesChecked(true); // 首次默认全选
+        // ★ 使用支持中文的字体，而不是 Consolas
+        //   Windows 下“微软雅黑”系列基本都在，够稳妥
+        Font base = tc.getFont();
+        Font cnFont = new Font("Microsoft YaHei UI", Font.PLAIN, base.getSize());
+        if ("Microsoft YaHei UI".equals(cnFont.getFamily())) {
+            tc.setFont(cnFont);
         } else {
-            Set<String> want = new LinkedHashSet<>(Arrays.asList(saved.split(SEP, -1)));
-            for (JCheckBox cb : categoryChecks) {
-                cb.setSelected(want.contains(cb.getText()));
-            }
+            // 如果这字体不存在，就老老实实用默认字体
+            tc.setFont(base.deriveFont(Font.PLAIN, base.getSize()));
         }
-        // 随机与间隔
-        randomIntervalCheck.setSelected(prefs.getBoolean(KEY_RANDOM, true));
-        int max = prefs.getInt(KEY_MAX_SEC, 10);
-        max = Math.max(1, Math.min(1800, max));
-        maxIntervalSlider.setValue(max);
-        maxIntervalLabel.setText("最大间隔秒数: " + maxIntervalSlider.getValue());
 
+        tc.setBorder(new CompoundBorder(
+                new LineBorder(new Color(0, 140, 255), 1, true),
+                new EmptyBorder(4, 8, 4, 8)
+        ));
     }
 
-    private void setAllCategoriesChecked(boolean checked) {
-        for (JCheckBox cb : categoryChecks) cb.setSelected(checked);
+    /** 按钮：深色背景 + 霓虹蓝边框 + 加粗字体 */
+    private void styleButton(AbstractButton btn) {
+        btn.setOpaque(true);
+        btn.setBackground(new Color(20, 30, 50));
+        btn.setForeground(ACCENT_SOFT);
+        btn.setBorder(new CompoundBorder(
+                new LineBorder(ACCENT, 1, true),
+                new EmptyBorder(3, 10, 3, 10)
+        ));
+        btn.setFocusPainted(false);
+        btn.setContentAreaFilled(true);
+
+        Font f = btn.getFont();
+        btn.setFont(f.deriveFont(Font.BOLD, f.getSize()));
     }
 
-    private List<String> getSelectedCategoriesFromUI() {
-        List<String> chosen = new ArrayList<>();
-        for (JCheckBox cb : categoryChecks) if (cb.isSelected()) chosen.add(cb.getText());
-        if (chosen.isEmpty()) {
-            chosen.addAll(QuestionBank.categories());
-        }
-        return chosen;
+    public static void main(String[] args) {
+        try {
+            // 先用系统默认 LAF，再叠加我们自己的深色主题
+            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+        } catch (Exception ignored) { }
+
+        SwingUtilities.invokeLater(() -> {
+            KnowledgeRobotApp app = new KnowledgeRobotApp();
+            app.setVisible(true);
+        });
     }
 }
