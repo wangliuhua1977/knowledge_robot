@@ -16,6 +16,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -84,12 +85,18 @@ public class SmartInspectionService {
                 logger.log("本轮扫描未发现图片文件，等待下次轮询。");
                 return;
             }
-            logger.log("发现图片数量：" + images.size());
-            for (Path img : images) {
+            Set<String> processedNames = loadHistoryOriginalNames(historyDir);
+            List<Path> pendingImages = excludeProcessed(images, processedNames);
+            if (pendingImages.isEmpty()) {
+                return;
+            }
+            logger.log("发现图片数量：" + pendingImages.size());
+            for (Path img : pendingImages) {
                 if (!running.get()) {
                     break;
                 }
                 handleOneImage(img.toFile(), historyDir);
+                processedNames.add(img.getFileName().toString());
             }
         } catch (Exception ex) {
             logger.log("扫描处理异常：" + ex.getMessage());
@@ -110,6 +117,29 @@ public class SmartInspectionService {
                     .sorted(Comparator.comparing(Path::toString))
                     .collect(Collectors.toCollection(ArrayList::new));
         }
+    }
+
+    private Set<String> loadHistoryOriginalNames(Path historyDir) throws IOException {
+        try (Stream<Path> stream = Files.list(historyDir)) {
+            return stream
+                    .filter(Files::isRegularFile)
+                    .map(this::extractOriginalName)
+                    .collect(Collectors.toSet());
+        }
+    }
+
+    private List<Path> excludeProcessed(List<Path> images, Set<String> processedNames) {
+        return images.stream()
+                .filter(p -> !processedNames.contains(p.getFileName().toString()))
+                .collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    private String extractOriginalName(Path historyFile) {
+        String name = historyFile.getFileName().toString();
+        if (name.matches("\\d{8}_\\d{6}_.+")) {
+            return name.substring(16);
+        }
+        return name;
     }
 
     private void handleOneImage(File file, Path historyDir) {
