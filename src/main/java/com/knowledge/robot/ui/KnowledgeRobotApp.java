@@ -37,8 +37,6 @@ public class KnowledgeRobotApp extends JFrame {
     private final JPanel cardPanel = new JPanel(cardLayout);
     private final JPanel nav = new JPanel();
     private final SmartInspectionPanel inspectionPanel = new SmartInspectionPanel();
-    private final JComboBox<String> themeCombo = new JComboBox<>();
-    private final JLabel themeLabel = new JLabel("配色主题");
     private final JButton navToConfig = new JButton("配置");
     private final JButton navToInspectionTab = new JButton("智能点检");
 
@@ -99,9 +97,6 @@ public class KnowledgeRobotApp extends JFrame {
         nav.add(navToConfig);
         nav.add(Box.createVerticalStrut(10));
         nav.add(navToInspectionTab);
-        nav.add(Box.createVerticalStrut(15));
-        nav.add(themeLabel);
-        nav.add(themeCombo);
         nav.add(Box.createVerticalGlue());
 
         // Config panel content
@@ -481,10 +476,6 @@ public class KnowledgeRobotApp extends JFrame {
         maxIntervalSlider.setValue(max);
         maxIntervalLabel.setText("最大间隔秒数: " + maxIntervalSlider.getValue());
 
-        String themeName = prefs.get(KEY_THEME, ThemePalette.DEFAULT.name());
-        ThemePalette palette = ThemePalette.valueOf(themeName);
-        themeCombo.setSelectedItem(palette.displayName());
-        applyTheme(palette);
     }
 
     private void setAllCategoriesChecked(boolean checked) {
