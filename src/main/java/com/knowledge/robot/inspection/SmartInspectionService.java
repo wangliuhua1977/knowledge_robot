@@ -120,6 +120,7 @@ public class SmartInspectionService {
             callCompletion(refId, chatId);
             moveToHistory(file.toPath(), historyDir);
             logger.log("文件已移至历史目录。\n");
+            logger.historyChanged(historyDir);
         } catch (Exception e) {
             logger.log("处理失败：" + e.getMessage());
         }

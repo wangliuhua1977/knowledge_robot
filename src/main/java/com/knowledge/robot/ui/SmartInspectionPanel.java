@@ -188,6 +188,11 @@ public class SmartInspectionPanel extends JPanel implements SmartInspectionLogge
         });
     }
 
+    @Override
+    public void historyChanged(java.nio.file.Path historyDir) {
+        SwingUtilities.invokeLater(this::refreshHistory);
+    }
+
     private void loadPrefs() {
         folderField.setText(prefs.get(KEY_FOLDER, System.getProperty("user.home", "")));
         intervalSpinner.setValue(prefs.getLong(KEY_INTERVAL, 60));
