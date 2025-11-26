@@ -23,6 +23,7 @@ public class SmartInspectionPanel extends JPanel implements SmartInspectionLogge
     private final Preferences prefs = Preferences.userRoot().node(PREF_NODE);
     private final JTextField folderField = new JTextField();
     private final JSpinner intervalSpinner = new JSpinner(new SpinnerNumberModel(60, 5, 3600, 5));
+    private final int intervalColumns = 4;
     private final JButton startBtn = new JButton("启动任务");
     private final JButton stopBtn = new JButton("停止");
     private final JTextArea processLogArea = new JTextArea();
@@ -33,6 +34,8 @@ public class SmartInspectionPanel extends JPanel implements SmartInspectionLogge
     private final JSpinner daySpinner;
     private final JRadioButton groupByDay = new JRadioButton("按日期", true);
     private final JRadioButton groupByRange = new JRadioButton("按时段");
+    private final JPanel params = new JPanel(new GridBagLayout());
+    private final JPanel historyPanel = new JPanel(new BorderLayout());
 
     private SmartInspectionService service;
 
@@ -47,7 +50,6 @@ public class SmartInspectionPanel extends JPanel implements SmartInspectionLogge
     }
 
     private void buildUI() {
-        JPanel params = new JPanel(new GridBagLayout());
         GridBagConstraints gc = new GridBagConstraints();
         gc.insets = new Insets(6, 6, 6, 6);
         gc.fill = GridBagConstraints.HORIZONTAL;
@@ -60,6 +62,8 @@ public class SmartInspectionPanel extends JPanel implements SmartInspectionLogge
 
         gc.gridx = 0; gc.gridy = 1; params.add(new JLabel("间隔(秒)"), gc);
         gc.gridx = 1; params.add(intervalSpinner, gc);
+        JSpinner.NumberEditor intervalEditor = (JSpinner.NumberEditor) intervalSpinner.getEditor();
+        intervalEditor.getTextField().setColumns(intervalColumns);
 
         JPanel topButtons = new JPanel(new FlowLayout(FlowLayout.LEFT));
         topButtons.add(startBtn);
@@ -76,29 +80,27 @@ public class SmartInspectionPanel extends JPanel implements SmartInspectionLogge
         JScrollPane processLogScroll = new JScrollPane(processLogArea);
         processLogScroll.setBorder(new TitledBorder("处理日志"));
 
-        JPanel historyPanel = new JPanel(new BorderLayout());
-        JPanel historyFilter = new JPanel(new GridBagLayout());
-        GridBagConstraints hg = new GridBagConstraints();
-        hg.insets = new Insets(4, 4, 4, 4);
-        hg.fill = GridBagConstraints.HORIZONTAL;
+        JPanel historyFilter = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
 
         ButtonGroup group = new ButtonGroup();
         group.add(groupByDay);
         group.add(groupByRange);
 
-        hg.gridx = 0; hg.gridy = 0; historyFilter.add(groupByDay, hg);
-        hg.gridx = 1; historyFilter.add(daySpinner, hg);
-        hg.gridx = 0; hg.gridy = 1; historyFilter.add(groupByRange, hg);
-        hg.gridx = 1; historyFilter.add(fromDateSpinner, hg);
-        hg.gridx = 2; historyFilter.add(toDateSpinner, hg);
+        historyFilter.add(groupByDay);
+        historyFilter.add(daySpinner);
+        historyFilter.add(groupByRange);
+        historyFilter.add(fromDateSpinner);
+        historyFilter.add(toDateSpinner);
         JButton refreshHistory = new JButton("刷新历史");
-        hg.gridx = 3; hg.gridy = 0; hg.gridheight = 2; hg.fill = GridBagConstraints.VERTICAL;
-        historyFilter.add(refreshHistory, hg);
+        historyFilter.add(refreshHistory);
         refreshHistory.addActionListener(e -> refreshHistory());
 
         historyTable.setRowHeight(80);
         historyTable.setAutoCreateRowSorter(true);
         historyTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        historyTable.setShowGrid(true);
+        historyTable.setGridColor(Color.LIGHT_GRAY);
+        historyTable.setIntercellSpacing(new Dimension(1, 1));
         JScrollPane historyScroll = new JScrollPane(historyTable);
         historyScroll.setBorder(new TitledBorder("历史处理记录"));
         historyPanel.add(historyFilter, BorderLayout.NORTH);
@@ -325,31 +327,41 @@ public class SmartInspectionPanel extends JPanel implements SmartInspectionLogge
     private static class HistoryRow {
         private final Path path;
         private final Date time;
-        private final ImageIcon thumbnail;
+        private ImageIcon thumbnail;
+        private boolean thumbnailLoaded;
 
         HistoryRow(Path path) throws IOException {
             this.path = path;
             this.time = new Date(Files.getLastModifiedTime(path).toMillis());
-            this.thumbnail = createThumb(path);
         }
 
         Path path() { return path; }
 
         Date time() { return time; }
 
-        ImageIcon thumbnail() { return thumbnail; }
+        ImageIcon thumbnail() {
+            if (!thumbnailLoaded) {
+                thumbnail = createThumb(path);
+                thumbnailLoaded = true;
+            }
+            return thumbnail;
+        }
 
         String fileName() { return path.getFileName().toString(); }
 
-        private ImageIcon createThumb(Path p) throws IOException {
-            java.awt.image.BufferedImage img = javax.imageio.ImageIO.read(p.toFile());
-            if (img == null) {
+        private ImageIcon createThumb(Path p) {
+            try {
+                java.awt.image.BufferedImage img = javax.imageio.ImageIO.read(p.toFile());
+                if (img == null) {
+                    return new ImageIcon();
+                }
+                int targetW = 120;
+                int targetH = 80;
+                Image scaled = img.getScaledInstance(targetW, targetH, Image.SCALE_SMOOTH);
+                return new ImageIcon(scaled);
+            } catch (IOException e) {
                 return new ImageIcon();
             }
-            int targetW = 120;
-            int targetH = 80;
-            Image scaled = img.getScaledInstance(targetW, targetH, Image.SCALE_SMOOTH);
-            return new ImageIcon(scaled);
         }
     }
 
