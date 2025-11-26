@@ -171,7 +171,7 @@ public class SmartInspectionService {
     }
 
     private void callCompletion(long refId, String chatId) throws IOException {
-        logger.log("正在调用星河大模型进行人脸切图识别处理");
+        logger.log("智能体平台正在进行人脸切图识别处理 ");
         var payloadNode = mapper.createObjectNode();
         payloadNode.put("chatId", chatId);
         payloadNode.put("stream", true);
