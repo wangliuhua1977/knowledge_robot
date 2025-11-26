@@ -7,6 +7,7 @@ import com.knowledge.robot.util.AppSettings;
 
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
+import javax.swing.table.AbstractTableModel;
 import java.awt.*;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -24,17 +25,21 @@ public class SmartInspectionPanel extends JPanel implements SmartInspectionLogge
     private final JSpinner intervalSpinner = new JSpinner(new SpinnerNumberModel(60, 5, 3600, 5));
     private final JButton startBtn = new JButton("启动任务");
     private final JButton stopBtn = new JButton("停止");
-    private final JTextArea logArea = new JTextArea();
-    private final DefaultListModel<String> historyModel = new DefaultListModel<>();
-    private final JList<String> historyList = new JList<>(historyModel);
+    private final JTextArea processLogArea = new JTextArea();
+    private final HistoryTableModel historyTableModel = new HistoryTableModel();
+    private final JTable historyTable = new JTable(historyTableModel);
     private final JSpinner fromDateSpinner;
     private final JSpinner toDateSpinner;
+    private final JSpinner daySpinner;
+    private final JRadioButton groupByDay = new JRadioButton("按日期", true);
+    private final JRadioButton groupByRange = new JRadioButton("按时段");
 
     private SmartInspectionService service;
 
     public SmartInspectionPanel() {
         this.fromDateSpinner = createDateSpinner();
         this.toDateSpinner = createDateSpinner();
+        this.daySpinner = createDateSpinner();
         setLayout(new BorderLayout(8, 8));
         buildUI();
         bindActions();
@@ -66,33 +71,41 @@ public class SmartInspectionPanel extends JPanel implements SmartInspectionLogge
         paramBorder.add(params, BorderLayout.CENTER);
         paramBorder.add(topButtons, BorderLayout.SOUTH);
 
-        logArea.setEditable(false);
-        logArea.setLineWrap(true);
-        JScrollPane logScroll = new JScrollPane(logArea);
-        logScroll.setBorder(new TitledBorder("处理日志"));
+        processLogArea.setEditable(false);
+        processLogArea.setLineWrap(true);
+        JScrollPane processLogScroll = new JScrollPane(processLogArea);
+        processLogScroll.setBorder(new TitledBorder("处理日志"));
 
         JPanel historyPanel = new JPanel(new BorderLayout());
         JPanel historyFilter = new JPanel(new GridBagLayout());
         GridBagConstraints hg = new GridBagConstraints();
         hg.insets = new Insets(4, 4, 4, 4);
         hg.fill = GridBagConstraints.HORIZONTAL;
-        hg.gridx = 0; hg.gridy = 0; historyFilter.add(new JLabel("开始时间"), hg);
+
+        ButtonGroup group = new ButtonGroup();
+        group.add(groupByDay);
+        group.add(groupByRange);
+
+        hg.gridx = 0; hg.gridy = 0; historyFilter.add(groupByDay, hg);
+        hg.gridx = 1; historyFilter.add(daySpinner, hg);
+        hg.gridx = 0; hg.gridy = 1; historyFilter.add(groupByRange, hg);
         hg.gridx = 1; historyFilter.add(fromDateSpinner, hg);
-        hg.gridx = 0; hg.gridy = 1; historyFilter.add(new JLabel("结束时间"), hg);
-        hg.gridx = 1; historyFilter.add(toDateSpinner, hg);
+        hg.gridx = 2; historyFilter.add(toDateSpinner, hg);
         JButton refreshHistory = new JButton("刷新历史");
-        hg.gridx = 2; hg.gridy = 0; hg.gridheight = 2; hg.fill = GridBagConstraints.VERTICAL;
+        hg.gridx = 3; hg.gridy = 0; hg.gridheight = 2; hg.fill = GridBagConstraints.VERTICAL;
         historyFilter.add(refreshHistory, hg);
         refreshHistory.addActionListener(e -> refreshHistory());
 
-        historyList.setVisibleRowCount(10);
-        JScrollPane historyScroll = new JScrollPane(historyList);
+        historyTable.setRowHeight(80);
+        historyTable.setAutoCreateRowSorter(true);
+        historyTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        JScrollPane historyScroll = new JScrollPane(historyTable);
         historyScroll.setBorder(new TitledBorder("历史处理记录"));
         historyPanel.add(historyFilter, BorderLayout.NORTH);
         historyPanel.add(historyScroll, BorderLayout.CENTER);
 
-        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, logScroll, historyPanel);
-        split.setDividerLocation(320);
+        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, processLogScroll, historyPanel);
+        split.setDividerLocation(260);
 
         add(paramBorder, BorderLayout.NORTH);
         add(split, BorderLayout.CENTER);
@@ -101,6 +114,16 @@ public class SmartInspectionPanel extends JPanel implements SmartInspectionLogge
     private void bindActions() {
         startBtn.addActionListener(e -> onStart());
         stopBtn.addActionListener(e -> onStop());
+        groupByDay.addActionListener(e -> toggleFilterMode());
+        groupByRange.addActionListener(e -> toggleFilterMode());
+        historyTable.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                if (e.getClickCount() == 2) {
+                    openSelectedImage();
+                }
+            }
+        });
     }
 
     public void onShow() {
@@ -160,8 +183,8 @@ public class SmartInspectionPanel extends JPanel implements SmartInspectionLogge
     public void log(String message) {
         SwingUtilities.invokeLater(() -> {
             String ts = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date());
-            logArea.append(ts + " - " + message + "\n");
-            logArea.setCaretPosition(logArea.getDocument().getLength());
+            processLogArea.append(ts + " - " + message + "\n");
+            processLogArea.setCaretPosition(processLogArea.getDocument().getLength());
         });
     }
 
@@ -170,6 +193,8 @@ public class SmartInspectionPanel extends JPanel implements SmartInspectionLogge
         intervalSpinner.setValue(prefs.getLong(KEY_INTERVAL, 60));
         setDateToStartOfDay(fromDateSpinner, new Date());
         setDateToEndOfDay(toDateSpinner, new Date());
+        setDateToStartOfDay(daySpinner, new Date());
+        toggleFilterMode();
         refreshHistory();
     }
 
@@ -187,30 +212,20 @@ public class SmartInspectionPanel extends JPanel implements SmartInspectionLogge
     }
 
     public void refreshHistory() {
-        historyModel.clear();
+        historyTableModel.clear();
         String folder = folderField.getText().trim();
         if (folder.isEmpty()) {
             return;
         }
         Path history = Path.of(folder).resolve("his");
-        Date from = (Date) fromDateSpinner.getValue();
-        Date to = (Date) toDateSpinner.getValue();
+        DateRange range = currentRange();
         try {
             if (!Files.exists(history)) {
                 return;
             }
             Files.list(history)
                     .filter(Files::isRegularFile)
-                    .filter(p -> {
-                        try {
-                            long mod = Files.getLastModifiedTime(p).toMillis();
-                            return mod >= from.getTime() && mod <= to.getTime();
-                        } catch (IOException e) {
-                            return false;
-                        }
-                    })
-                    .sorted()
-                    .forEach(p -> historyModel.addElement(p.getFileName().toString()));
+                    .forEach(p -> addIfInRange(p, range));
         } catch (IOException e) {
             log("读取历史失败：" + e.getMessage());
         }
@@ -234,5 +249,146 @@ public class SmartInspectionPanel extends JPanel implements SmartInspectionLogge
         cal.set(java.util.Calendar.SECOND, 59);
         cal.set(java.util.Calendar.MILLISECOND, 999);
         spinner.setValue(cal.getTime());
+    }
+
+    private void toggleFilterMode() {
+        boolean dayMode = groupByDay.isSelected();
+        daySpinner.setEnabled(dayMode);
+        fromDateSpinner.setEnabled(!dayMode);
+        toDateSpinner.setEnabled(!dayMode);
+    }
+
+    private DateRange currentRange() {
+        if (groupByDay.isSelected()) {
+            Date d = (Date) daySpinner.getValue();
+            Date start = toStartOfDay(d);
+            Date end = toEndOfDay(d);
+            return new DateRange(start, end);
+        }
+        return new DateRange((Date) fromDateSpinner.getValue(), (Date) toDateSpinner.getValue());
+    }
+
+    private Date toStartOfDay(Date date) {
+        java.util.Calendar cal = java.util.Calendar.getInstance();
+        cal.setTime(date);
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 0);
+        cal.set(java.util.Calendar.MINUTE, 0);
+        cal.set(java.util.Calendar.SECOND, 0);
+        cal.set(java.util.Calendar.MILLISECOND, 0);
+        return cal.getTime();
+    }
+
+    private Date toEndOfDay(Date date) {
+        java.util.Calendar cal = java.util.Calendar.getInstance();
+        cal.setTime(date);
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 23);
+        cal.set(java.util.Calendar.MINUTE, 59);
+        cal.set(java.util.Calendar.SECOND, 59);
+        cal.set(java.util.Calendar.MILLISECOND, 999);
+        return cal.getTime();
+    }
+
+    private void addIfInRange(Path p, DateRange range) {
+        try {
+            long mod = Files.getLastModifiedTime(p).toMillis();
+            if (mod >= range.start().getTime() && mod <= range.end().getTime()) {
+                historyTableModel.add(new HistoryRow(p));
+            }
+        } catch (IOException e) {
+            // 忽略单个文件错误，继续加载
+        }
+    }
+
+    private void openSelectedImage() {
+        int viewRow = historyTable.getSelectedRow();
+        if (viewRow < 0) return;
+        int modelRow = historyTable.convertRowIndexToModel(viewRow);
+        HistoryRow row = historyTableModel.get(modelRow);
+        try {
+            if (Desktop.isDesktopSupported()) {
+                Desktop.getDesktop().open(row.path().toFile());
+            } else {
+                JOptionPane.showMessageDialog(this, "当前环境不支持直接打开文件。");
+            }
+        } catch (IOException ex) {
+            JOptionPane.showMessageDialog(this, "打开图片失败：" + ex.getMessage());
+        }
+    }
+
+    private record DateRange(Date start, Date end) {}
+
+    private static class HistoryRow {
+        private final Path path;
+        private final Date time;
+        private final ImageIcon thumbnail;
+
+        HistoryRow(Path path) throws IOException {
+            this.path = path;
+            this.time = new Date(Files.getLastModifiedTime(path).toMillis());
+            this.thumbnail = createThumb(path);
+        }
+
+        Path path() { return path; }
+
+        Date time() { return time; }
+
+        ImageIcon thumbnail() { return thumbnail; }
+
+        String fileName() { return path.getFileName().toString(); }
+
+        private ImageIcon createThumb(Path p) throws IOException {
+            java.awt.image.BufferedImage img = javax.imageio.ImageIO.read(p.toFile());
+            if (img == null) {
+                return new ImageIcon();
+            }
+            int targetW = 120;
+            int targetH = 80;
+            Image scaled = img.getScaledInstance(targetW, targetH, Image.SCALE_SMOOTH);
+            return new ImageIcon(scaled);
+        }
+    }
+
+    private static class HistoryTableModel extends AbstractTableModel {
+        private final java.util.List<HistoryRow> rows = new java.util.ArrayList<>();
+        private final String[] cols = {"文件名", "扫描时间", "缩略图"};
+        private final SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+
+        @Override
+        public int getRowCount() { return rows.size(); }
+
+        @Override
+        public int getColumnCount() { return cols.length; }
+
+        @Override
+        public String getColumnName(int column) { return cols[column]; }
+
+        @Override
+        public Class<?> getColumnClass(int columnIndex) {
+            if (columnIndex == 2) return ImageIcon.class;
+            return String.class;
+        }
+
+        @Override
+        public Object getValueAt(int rowIndex, int columnIndex) {
+            HistoryRow row = rows.get(rowIndex);
+            return switch (columnIndex) {
+                case 0 -> row.fileName();
+                case 1 -> fmt.format(row.time());
+                case 2 -> row.thumbnail();
+                default -> "";
+            };
+        }
+
+        void add(HistoryRow row) {
+            rows.add(row);
+            fireTableDataChanged();
+        }
+
+        void clear() {
+            rows.clear();
+            fireTableDataChanged();
+        }
+
+        HistoryRow get(int index) { return rows.get(index); }
     }
 }
