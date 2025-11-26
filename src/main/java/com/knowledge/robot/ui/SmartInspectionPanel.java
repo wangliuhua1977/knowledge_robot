@@ -4,6 +4,7 @@ import com.knowledge.robot.inspection.SmartInspectionConfig;
 import com.knowledge.robot.inspection.SmartInspectionLogger;
 import com.knowledge.robot.inspection.SmartInspectionService;
 import com.knowledge.robot.util.AppSettings;
+import com.knowledge.robot.ui.ThemePalette;
 
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
