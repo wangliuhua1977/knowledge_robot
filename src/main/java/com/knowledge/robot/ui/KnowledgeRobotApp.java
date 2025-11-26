@@ -72,7 +72,7 @@ public class KnowledgeRobotApp extends JFrame {
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setSize(1100, 720);
         setLocationRelativeTo(null);
-        initThemeCombo();
+
         buildUI();
         bindActions();
         loadPreferencesAndApply();        // 启动时恢复上次选择（首次默认全选）
@@ -244,17 +244,7 @@ public class KnowledgeRobotApp extends JFrame {
         nextInLabel.setText("下次对话倒计时：—");
     }
 
-    private void initThemeCombo() {
-        themeCombo.removeAllItems();
-        for (ThemePalette palette : ThemePalette.values()) {
-            themeCombo.addItem(palette.displayName());
-        }
-        themeCombo.addActionListener(e -> {
-            ThemePalette palette = ThemePalette.fromDisplayName((String) themeCombo.getSelectedItem());
-            prefs.put(KEY_THEME, palette.name());
-            applyTheme(palette);
-        });
-    }
+
 
     private void applyTheme(ThemePalette palette) {
         getContentPane().setBackground(palette.background());
@@ -271,16 +261,14 @@ public class KnowledgeRobotApp extends JFrame {
         customField.setForeground(palette.text());
         runCountLabel.setForeground(palette.text());
         nextInLabel.setForeground(palette.text());
-        themeLabel.setForeground(palette.text());
-        themeCombo.setBackground(palette.panel());
-        themeCombo.setForeground(palette.text());
+
 
         updateContainerColors(configPanel, palette);
         updateContainerColors(autoPanel, palette);
         updateContainerColors(nav, palette);
 
         styleButtons(palette, startBtn, stopBtn, btnSelectAll, btnDeselectAll, saveConfigBtn,
-                toInspection, sendBtn, navToConfig, navToInspectionTab);
+                 sendBtn, navToConfig, navToInspectionTab);
         inspectionPanel.applyTheme(palette);
         repaint();
     }
