@@ -34,7 +34,10 @@ public class KnowledgeRobotApp extends JFrame {
 
     private final CardLayout cardLayout = new CardLayout();
     private final JPanel cardPanel = new JPanel(cardLayout);
+    private final JPanel nav = new JPanel();
     private final SmartInspectionPanel inspectionPanel = new SmartInspectionPanel();
+    private final JButton navToConfig = new JButton("配置");
+    private final JButton navToInspectionTab = new JButton("智能点检");
 
     // Config panel widgets
     private final JPanel configPanel = new JPanel(new BorderLayout());
@@ -87,14 +90,11 @@ public class KnowledgeRobotApp extends JFrame {
 
     private void buildUI() {
         // Left navigation
-        JPanel nav = new JPanel();
         nav.setLayout(new BoxLayout(nav, BoxLayout.Y_AXIS));
         nav.setBorder(BorderFactory.createEmptyBorder(10,10,10,10));
-        JButton toConfig = new JButton("配置");
-        JButton toInspectionTab = new JButton("智能点检");
-        nav.add(toConfig);
+        nav.add(navToConfig);
         nav.add(Box.createVerticalStrut(10));
-        nav.add(toInspectionTab);
+        nav.add(navToInspectionTab);
         nav.add(Box.createVerticalGlue());
 
         // Config panel content
@@ -182,8 +182,8 @@ public class KnowledgeRobotApp extends JFrame {
         getContentPane().add(nav, BorderLayout.WEST);
         getContentPane().add(cardPanel, BorderLayout.CENTER);
 
-        toConfig.addActionListener(e -> cardLayout.show(cardPanel, "cfg"));
-        toInspectionTab.addActionListener(e -> {
+        navToConfig.addActionListener(e -> cardLayout.show(cardPanel, "cfg"));
+        navToInspectionTab.addActionListener(e -> {
             inspectionPanel.onShow();
             cardLayout.show(cardPanel, "inspection");
         });
@@ -379,6 +379,7 @@ public class KnowledgeRobotApp extends JFrame {
         max = Math.max(1, Math.min(1800, max));
         maxIntervalSlider.setValue(max);
         maxIntervalLabel.setText("最大间隔秒数: " + maxIntervalSlider.getValue());
+
     }
 
     private void setAllCategoriesChecked(boolean checked) {
