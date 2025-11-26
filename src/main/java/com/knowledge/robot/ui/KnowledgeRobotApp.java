@@ -10,6 +10,8 @@ import javax.swing.text.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.util.List;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -32,6 +34,7 @@ public class KnowledgeRobotApp extends JFrame {
 
     private final CardLayout cardLayout = new CardLayout();
     private final JPanel cardPanel = new JPanel(cardLayout);
+    private final SmartInspectionPanel inspectionPanel = new SmartInspectionPanel();
 
     // Config panel widgets
     private final JPanel configPanel = new JPanel(new BorderLayout());
@@ -61,7 +64,7 @@ public class KnowledgeRobotApp extends JFrame {
     private AutoChatService service;
 
     public KnowledgeRobotApp() {
-        super("Knowledge Robot - 乐山电信IT智能体-业务学习");
+        super("乐山智能点检");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setSize(1100, 720);
         setLocationRelativeTo(null);
@@ -69,7 +72,16 @@ public class KnowledgeRobotApp extends JFrame {
         bindActions();
         loadPreferencesAndApply();        // 启动时恢复上次选择（首次默认全选）
         refreshRunCount();
-        SwingUtilities.invokeLater(() -> cardLayout.show(cardPanel, "auto")); // 默认定位到自动聊天
+        SwingUtilities.invokeLater(() -> {
+            inspectionPanel.onShow();
+            cardLayout.show(cardPanel, "inspection");
+        });
+        addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                inspectionPanel.stopService();
+            }
+        });
     }
 
     private void buildUI() {
@@ -78,10 +90,10 @@ public class KnowledgeRobotApp extends JFrame {
         nav.setLayout(new BoxLayout(nav, BoxLayout.Y_AXIS));
         nav.setBorder(BorderFactory.createEmptyBorder(10,10,10,10));
         JButton toConfig = new JButton("配置");
-        JButton toAuto = new JButton("自动学习");
+        JButton toInspectionTab = new JButton("智能点检");
         nav.add(toConfig);
         nav.add(Box.createVerticalStrut(10));
-        nav.add(toAuto);
+        nav.add(toInspectionTab);
         nav.add(Box.createVerticalGlue());
 
         // Config panel content
@@ -162,6 +174,7 @@ public class KnowledgeRobotApp extends JFrame {
         // Cards
         cardPanel.add(configPanel, "cfg");
         cardPanel.add(autoPanel, "auto");
+        cardPanel.add(inspectionPanel, "inspection");
 
         // Root
         getContentPane().setLayout(new BorderLayout());
@@ -169,14 +182,16 @@ public class KnowledgeRobotApp extends JFrame {
         getContentPane().add(cardPanel, BorderLayout.CENTER);
 
         toConfig.addActionListener(e -> cardLayout.show(cardPanel, "cfg"));
-        toAuto.addActionListener(e -> cardLayout.show(cardPanel, "auto"));
+        toInspectionTab.addActionListener(e -> {
+            inspectionPanel.onShow();
+            cardLayout.show(cardPanel, "inspection");
+        });
     }
 
     private void bindActions() {
         saveConfigBtn.addActionListener(this::onSave);
         startBtn.addActionListener(this::onStart);
         stopBtn.addActionListener(this::onStop);
-
         btnSelectAll.addActionListener(e -> setAllCategoriesChecked(true));
         btnDeselectAll.addActionListener(e -> setAllCategoriesChecked(false));
 
